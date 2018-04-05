@@ -264,7 +264,7 @@ main(int argc, char *argv[]) {
       dup2(outfd[1], 1);
       execvp("/bin/bash", args);
       fprintf(stderr, "%s: could not execute: %s\n", progname, strerror(errno));
-      exit(1);
+      _exit(1);
     }
 
     /* Close the opposite ends of pipes in the parent. */
