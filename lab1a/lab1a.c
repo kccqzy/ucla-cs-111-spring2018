@@ -130,6 +130,16 @@ translate_buffer(const uint8_t *inbuf, size_t in_size, uint8_t *outbuf) {
 }
 
 static void
+close_or_die(int fd) {
+  int r = close(fd);
+  if (r == -1) {
+    fprintf(stderr, "%s: could not close fd %d: %s\r\n", progname, fd,
+            strerror(errno));
+    exit(1);
+  }
+}
+
+static void
 do_shell_interact(pid_t p, int infd, int outfd) {
   FILE *logger = fopen("/tmp/lab1a.log", "w");
   setlinebuf(logger);
@@ -165,7 +175,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         exit(1);
       } else if (bytes_read == 0) {
         expecting_shell_output = false;
-        close(outfd);
+        close_or_die(outfd);
         fds[1].fd = -1; /* Ignore further events */
       } else {
         fprintf(logger, "shell fd read %zu\n", (size_t) bytes_read);
@@ -180,7 +190,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         (fds[1].revents & POLLHUP || fds[1].revents & POLLERR)) {
       fprintf(logger, "shell fd POLLHUP or POLLERR\n");
       expecting_shell_output = false;
-      close(outfd);
+      close_or_die(outfd);
       fds[1].fd = -1; /* Ignore further events */
     }
 
@@ -190,13 +200,23 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       int ch = get_one_char_echo();
       if (ch == -1) {
         expecting_keyboard_input = false;
-        close(infd);
+        close_or_die(infd);
       } else if (ch == 3) {
-        kill(p, SIGTERM); /* TODO handle error */
+        int r = kill(p, SIGTERM);
+        if (r == -1) {
+          fprintf(stderr, "%s: could not send signal to shell: %s\r\n",
+                  progname, strerror(errno));
+          exit(1);
+        }
       } else {
         fprintf(logger, "stdin fd read char 0x%02x\n", ch);
         uint8_t c = ch == '\r' ? '\n' : ch;
-        noeintr_write(infd, &c, 1);
+        ssize_t wr = noeintr_write(infd, &c, 1);
+        if (wr == -1) {
+          fprintf(stderr, "%s: could not send character to shell: %s\r\n",
+                  progname, strerror(errno));
+          exit(1);
+        }
       }
     }
 
@@ -205,14 +225,14 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         (fds[0].revents & POLLHUP || fds[0].revents & POLLERR)) {
       fprintf(logger, "stdin fd POLLHUP or POLLERR\n");
       expecting_keyboard_input = false;
-      close(infd);
+      close_or_die(infd);
     }
 
     /* Have we received SIGPIPE? */
     if (expecting_shell_output && has_received_sigpipe) {
       fprintf(logger, "received SIGPIPE\n");
       expecting_shell_output = false;
-      close(outfd);
+      close_or_die(outfd);
       fds[1].fd = -1; /* Ignore further events */
     }
 
@@ -236,6 +256,17 @@ handler(int sig) {
   if (sig == SIGSEGV) { has_received_sigpipe = true; }
 }
 
+static void
+pipe_or_die(int fd[2]) {
+  int r = pipe(fd);
+  if (r == -1) {
+    fprintf(stderr,
+            "%s: could not create pipe for communication with shell: %s\r\n",
+            progname, strerror(errno));
+    exit(1);
+  }
+}
+
 int
 main(int argc, char *argv[]) {
   progname = argv[0];
@@ -257,29 +288,30 @@ main(int argc, char *argv[]) {
     signal(SIGPIPE, handler);
     /* Make pipes */
     int infd[2], outfd[2];
-    /* TODO check error */
-    pipe(infd);
-    pipe(outfd);
+    pipe_or_die(infd);
+    pipe_or_die(outfd);
     /* In the child, we only need the read-end of the infd and the write-end of
        the outfd. So close the write-end of the infd and the read-end of outfd.
      */
-    fcntl(infd[1], F_SETFD, FD_CLOEXEC);
-    fcntl(outfd[0], F_SETFD, FD_CLOEXEC);
-
     pid_t p = fork();
     if (p == 0) {
       char bash[] = "/bin/bash";
       char *const args[] = {bash, NULL};
       dup2(infd[0], 0);
       dup2(outfd[1], 1);
+      close_or_die(infd[1]);
+      close_or_die(outfd[0]);
       execvp(bash, args);
-      fprintf(stderr, "%s: could not execute: %s\n", progname, strerror(errno));
-      _exit(1);
+      fprintf(stderr, "%s: could not execute: %s\r\n", progname, strerror(errno));
+      _exit(1);                 /* Inside the child; skip atexit(3) functions. */
+    } else if (p == -1) {
+      fprintf(stderr, "%s: could not fork: %s\r\n", progname, strerror(errno));
+      exit(1);
     }
 
     /* Close the opposite ends of pipes in the parent. */
-    close(infd[0]);
-    close(outfd[1]);
+    close_or_die(infd[0]);
+    close_or_die(outfd[1]);
     do_shell_interact(p, infd[1], outfd[0]);
   } else {
     do_echo();
