@@ -219,6 +219,18 @@ pipe_or_die(int fd[2]) {
   DIE_IF_MINUS_ONE(r, "could not create pipe for communication with shell");
 }
 
+static void
+dup2_or_die(int fd, int fd2) {
+  while (1) {
+    int r = dup2(fd, fd2);
+    if (r == -1) {
+      if (errno == EINTR) { continue; }
+      DIE_IF_MINUS_ONE(r, "could not duplicate file descriptor");
+    }
+    return;
+  }
+}
+
 int
 main(int argc, char *argv[]) {
   progname = argv[0];
@@ -250,8 +262,8 @@ main(int argc, char *argv[]) {
     if (p == 0) {
       char bash[] = "/bin/bash";
       char *const args[] = {bash, NULL};
-      dup2(infd[0], 0);
-      dup2(outfd[1], 1);
+      dup2_or_die(infd[0], 0);
+      dup2_or_die(outfd[1], 1);
       close_or_die(infd[1]);
       close_or_die(outfd[0]);
       execvp(bash, args);
