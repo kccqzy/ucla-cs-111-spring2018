@@ -1,0 +1,7 @@
+#!/bin/sh
+if [[ $# -gt 0 ]]; then
+    clang-tidy "$@" -fix -checks="readability-braces-around-statements" -- -std=c99
+    clang-format -i "$@"
+else
+    echo "usage: $0 FILE [FILE]..." >&2
+fi

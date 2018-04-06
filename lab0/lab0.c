@@ -164,8 +164,8 @@ main(int argc, char *argv[]) {
   progname = argv[0];
   parse_args(argc, argv);
   reopen();
-  if (opt_catch) register_handler();
-  if (opt_segfault) cause_segfault();
+  if (opt_catch) { register_handler(); }
+  if (opt_segfault) { cause_segfault(); }
   do_copy();
   return 0;
 }

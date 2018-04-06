@@ -105,7 +105,7 @@ get_one_char_echo(void) {
 static void
 do_echo(void) {
   while (1) {
-    if (get_one_char_echo() == -1) break;
+    if (get_one_char_echo() == -1) { break; }
   }
 }
 
@@ -227,7 +227,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
 
 static void
 handler(int sig) {
-  if (sig == SIGSEGV) has_received_sigpipe = true;
+  if (sig == SIGSEGV) { has_received_sigpipe = true; }
 }
 
 int
