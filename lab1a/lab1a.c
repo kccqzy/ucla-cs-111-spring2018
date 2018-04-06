@@ -16,9 +16,6 @@
 
 static const char *progname = NULL;
 static struct termios original_termios;
-
-static bool do_shell = false;
-
 static volatile bool has_received_sigpipe = false;
 
 static void
@@ -236,6 +233,7 @@ handler(int sig) {
 int
 main(int argc, char *argv[]) {
   progname = argv[0];
+  bool do_shell = false;
   if (argc == 2 && strcmp(argv[1], "--shell") == 0) {
     do_shell = true;
   } else if (argc > 1) {
