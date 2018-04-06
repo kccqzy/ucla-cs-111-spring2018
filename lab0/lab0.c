@@ -10,6 +10,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#define DIE_IF_MINUS_ONE(rv, code, reason, ...)                                \
+  do {                                                                         \
+    if (rv == -1) {                                                            \
+      fprintf(stderr, "%s: " reason ": %s\n", progname, ##__VA_ARGS__,         \
+              strerror(errno));                                                \
+      exit(code);                                                              \
+    }                                                                          \
+  } while (0)
+
 /* Options */
 static struct option prog_options[] = {
   {.name = "input", .has_arg = required_argument, .val = 'i'},
@@ -46,7 +55,7 @@ parse_args(int argc, char *argv[]) {
         stderr,
         "usage: %s [--input=INPUT] [--output=OUTPUT] [--segfault] [--catch]\n",
         argv[0]);
-      _exit(1);
+      exit(1);
     }
   }
 }
@@ -92,21 +101,13 @@ do_copy(void) {
   uint8_t buf[65536];
   while (1) {
     ssize_t bytes_read = noeintr_read(0, buf, sizeof buf);
-    if (bytes_read == 0) {
-      return;
-    } else if (bytes_read == -1) {
-      fprintf(stderr, "%s: could not read from standard input (%s): %s\n",
-              progname, opt_input ? opt_input : "original standard input",
-              strerror(errno));
-      _exit(5);
-    }
+    DIE_IF_MINUS_ONE(bytes_read, 5, "could not read from standard input (%s)",
+                     opt_input ? opt_input : "original standard input");
+    if (bytes_read == 0) { return; }
     ssize_t bytes_written = noeintr_write(1, buf, bytes_read);
-    if (bytes_written == -1) {
-      fprintf(stderr, "%s: could not write to standard output (%s): %s\n",
-              progname, opt_output ? opt_output : "original standard output",
-              strerror(errno));
-      _exit(5);
-    }
+    DIE_IF_MINUS_ONE(bytes_written, 5,
+                     "could not write to standard output (%s)",
+                     opt_output ? opt_output : "original standard output");
   }
 }
 
@@ -114,24 +115,20 @@ static void
 reopen(void) {
   if (opt_input) {
     int r = open(opt_input, O_RDONLY);
-    if (r == -1) {
-      fprintf(stderr,
-              "%s: could not open file %s as specified by '--input': %s\n",
-              progname, opt_input, strerror(errno));
-      _exit(2);
-    }
-    noeintr_dup2(r, 0);
+    DIE_IF_MINUS_ONE(r, 2, "could not open '%s' as specified by '--input'",
+                     opt_input);
+    int rr = noeintr_dup2(r, 0);
+    DIE_IF_MINUS_ONE(rr, 5,
+                     "could not duplicate file descriptor as standard input");
   }
 
   if (opt_output) {
     int r = open(opt_output, O_WRONLY | O_CREAT, 0777);
-    if (r == -1) {
-      fprintf(stderr,
-              "%s: could not open file %s as specified by '--output': %s\n",
-              progname, opt_output, strerror(errno));
-      _exit(3);
-    }
-    noeintr_dup2(r, 1);
+    DIE_IF_MINUS_ONE(r, 3, "could not open '%s' as specified by '--output'",
+                     opt_output);
+    int rr = noeintr_dup2(r, 1);
+    DIE_IF_MINUS_ONE(rr, 5,
+                     "could not duplicate file descriptor as standard output");
   }
 }
 
