@@ -141,8 +141,8 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     int n_ready = poll(fds, 2, -1);
     fprintf(logger,
             "woke up from poll(2):\n"
-            "    stdin revents = %d\n"
-            "    shell revents = %d\n",
+            "    stdin revents = 0x%04x\n"
+            "    shell revents = 0x%04x\n",
             fds[0].revents, fds[1].revents);
     if (n_ready == -1) {
       fprintf(stderr, "%s: could not poll: %s\n", progname, strerror(errno));
@@ -163,6 +163,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       } else if (bytes_read == 0) {
         expecting_shell_output = false;
         close(outfd);
+        fds[1].fd = -1; /* Ignore further events */
       } else {
         fprintf(logger, "shell fd read %zu\n", (size_t) bytes_read);
         uint8_t outbuf[65536 * 2];
@@ -177,6 +178,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       fprintf(logger, "shell fd POLLHUP or POLLERR\n");
       expecting_shell_output = false;
       close(outfd);
+      fds[1].fd = -1; /* Ignore further events */
     }
 
     /* Has the user typed anything here? */
@@ -186,6 +188,8 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       if (ch == -1) {
         expecting_keyboard_input = false;
         close(infd);
+      } else if (ch == 3) {
+        kill(p, SIGTERM); /* TODO handle error */
       } else {
         fprintf(logger, "stdin fd read char 0x%02x\n", ch);
         uint8_t c = ch == '\r' ? '\n' : ch;
@@ -206,10 +210,11 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       fprintf(logger, "received SIGPIPE\n");
       expecting_shell_output = false;
       close(outfd);
+      fds[1].fd = -1; /* Ignore further events */
     }
 
-    /* Return if we do not expect any more input from either. */
-    if (!expecting_keyboard_input && !expecting_shell_output) { break; }
+    /* Return if we do not expect any more shell output. */
+    if (!expecting_shell_output) { break; }
   }
 
   fprintf(logger, "preparing to shut down\n");
