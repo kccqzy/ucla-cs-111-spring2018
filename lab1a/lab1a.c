@@ -93,11 +93,17 @@ get_one_char_echo(void) {
             strerror(errno));
     exit(1);
   }
+  ssize_t written = 0;
   switch (*buf) {
   case '\r': /* FALLTHROUGH */
-  case '\n': noeintr_write(1, (const uint8_t *) "\r\n", 2); break;
+  case '\n': written = noeintr_write(1, (const uint8_t *) "\r\n", 2); break;
   case 4: /* ^D */ return -1;
-  default: noeintr_write(1, buf, 1); break;
+  default: written = noeintr_write(1, buf, 1); break;
+  }
+  if (written == -1) {
+    fprintf(stderr, "%s: cannot write to standard output: %s\n", progname,
+            strerror(errno));
+    exit(1);
   }
   return *buf;
 }
