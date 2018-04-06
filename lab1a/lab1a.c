@@ -18,6 +18,15 @@ static const char *progname = NULL;
 static struct termios original_termios;
 static volatile bool has_received_sigpipe = false;
 
+#define DIE_IF_MINUS_ONE(rv, reason, ...)                                      \
+  do {                                                                         \
+    if (rv == -1) {                                                            \
+      fprintf(stderr, "%s: " reason ": %s\r\n", progname, ##__VA_ARGS__,       \
+              strerror(errno));                                                \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
+
 static void
 restore_term(void) {
   assert(isatty(0));
@@ -30,12 +39,8 @@ restore_term(void) {
 static void
 setup_term(void) {
   struct termios t;
-  if (tcgetattr(0, &t) == -1) {
-    fprintf(stderr,
-            "%s: cannot get terminal attributes for standard input: %s\n",
-            progname, strerror(errno));
-    exit(1);
-  }
+  int get_rv = tcgetattr(0, &t);
+  DIE_IF_MINUS_ONE(get_rv, "cannot get terminal attributes for standard input");
   original_termios = t;
 
   /* Make the changes as in the spec */
@@ -43,12 +48,8 @@ setup_term(void) {
   t.c_oflag = 0;
   t.c_lflag = 0;
 
-  if (tcsetattr(0, TCSANOW, &t) == -1) {
-    fprintf(stderr,
-            "%s: cannot set terminal attributes for standard input: %s\n",
-            progname, strerror(errno));
-    exit(1);
-  }
+  int set_rv = tcsetattr(0, TCSANOW, &t);
+  DIE_IF_MINUS_ONE(set_rv, "cannot set terminal attributes for standard input");
   atexit(restore_term);
 }
 
@@ -86,13 +87,9 @@ static int
 get_one_char_echo(void) {
   uint8_t buf[1];
   ssize_t bytes_read = noeintr_read(0, buf, 1);
-  if (bytes_read == 0) {
-    return -1; /* EOF somehow */
-  } else if (bytes_read == -1) {
-    fprintf(stderr, "%s: cannot read from standard input: %s\r\n", progname,
-            strerror(errno));
-    exit(1);
-  }
+  DIE_IF_MINUS_ONE(bytes_read, "cannot read from standard input");
+  if (bytes_read == 0) { return -1; /* EOF somehow */ }
+
   ssize_t written = 0;
   switch (*buf) {
   case '\r': /* FALLTHROUGH */
@@ -100,11 +97,7 @@ get_one_char_echo(void) {
   case 4: /* ^D */ return -1;
   default: written = noeintr_write(1, buf, 1); break;
   }
-  if (written == -1) {
-    fprintf(stderr, "%s: cannot write to standard output: %s\r\n", progname,
-            strerror(errno));
-    exit(1);
-  }
+  DIE_IF_MINUS_ONE(written, "cannot write to standard output");
   return *buf;
 }
 
@@ -132,11 +125,7 @@ translate_buffer(const uint8_t *inbuf, size_t in_size, uint8_t *outbuf) {
 static void
 close_or_die(int fd) {
   int r = close(fd);
-  if (r == -1) {
-    fprintf(stderr, "%s: could not close fd %d: %s\r\n", progname, fd,
-            strerror(errno));
-    exit(1);
-  }
+  DIE_IF_MINUS_ONE(r, "could not close file descriptor");
 }
 
 static void
@@ -152,28 +141,22 @@ do_shell_interact(pid_t p, int infd, int outfd) {
   while (1) {
     fprintf(logger, "entering main event loop\n");
     int n_ready = poll(fds, 2, -1);
+    DIE_IF_MINUS_ONE(n_ready, "could not poll");
     fprintf(logger,
             "woke up from poll(2):\n"
             "    stdin revents = 0x%04x\n"
             "    shell revents = 0x%04x\n",
             fds[0].revents, fds[1].revents);
-    if (n_ready == -1) {
-      fprintf(stderr, "%s: could not poll: %s\n", progname, strerror(errno));
-      exit(1);
-    }
 
     /* Does the shell have any output for us? */
     if (expecting_shell_output && fds[1].revents & POLLIN) {
       fprintf(logger, "shell fd POLLIN\n");
       uint8_t buf[65536];
       ssize_t bytes_read = noeintr_read(outfd, buf, sizeof buf);
+      DIE_IF_MINUS_ONE(bytes_read, "could not read from pipe");
       /* NOTE that we assume we cannot have a pipe capacity greater than 65536
          bytes. This may not be the case in future versions of Linux. */
-      if (bytes_read == -1) {
-        fprintf(stderr, "%s: could not read from pipe: %s\r\n", progname,
-                strerror(errno));
-        exit(1);
-      } else if (bytes_read == 0) {
+      if (bytes_read == 0) {
         expecting_shell_output = false;
         close_or_die(outfd);
         fds[1].fd = -1; /* Ignore further events */
@@ -181,7 +164,9 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         fprintf(logger, "shell fd read %zu\n", (size_t) bytes_read);
         uint8_t outbuf[65536 * 2];
         size_t bytes_to_write = translate_buffer(buf, bytes_read, outbuf);
-        noeintr_write(1, outbuf, bytes_to_write);
+        ssize_t bytes_written = noeintr_write(1, outbuf, bytes_to_write);
+        DIE_IF_MINUS_ONE(bytes_written,
+                         "could not write shell output to standard output");
       }
     }
 
@@ -203,20 +188,12 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         close_or_die(infd);
       } else if (ch == 3) {
         int r = kill(p, SIGTERM);
-        if (r == -1) {
-          fprintf(stderr, "%s: could not send signal to shell: %s\r\n",
-                  progname, strerror(errno));
-          exit(1);
-        }
+        DIE_IF_MINUS_ONE(r, "could not send signal to shell");
       } else {
         fprintf(logger, "stdin fd read char 0x%02x\n", ch);
         uint8_t c = ch == '\r' ? '\n' : ch;
         ssize_t wr = noeintr_write(infd, &c, 1);
-        if (wr == -1) {
-          fprintf(stderr, "%s: could not send character to shell: %s\r\n",
-                  progname, strerror(errno));
-          exit(1);
-        }
+        DIE_IF_MINUS_ONE(wr, "could not send character to shell");
       }
     }
 
@@ -259,12 +236,7 @@ handler(int sig) {
 static void
 pipe_or_die(int fd[2]) {
   int r = pipe(fd);
-  if (r == -1) {
-    fprintf(stderr,
-            "%s: could not create pipe for communication with shell: %s\r\n",
-            progname, strerror(errno));
-    exit(1);
-  }
+  DIE_IF_MINUS_ONE(r, "could not create pipe for communication with shell");
 }
 
 int
@@ -294,6 +266,7 @@ main(int argc, char *argv[]) {
        the outfd. So close the write-end of the infd and the read-end of outfd.
      */
     pid_t p = fork();
+    DIE_IF_MINUS_ONE(p, "could not fork");
     if (p == 0) {
       char bash[] = "/bin/bash";
       char *const args[] = {bash, NULL};
@@ -302,11 +275,9 @@ main(int argc, char *argv[]) {
       close_or_die(infd[1]);
       close_or_die(outfd[0]);
       execvp(bash, args);
-      fprintf(stderr, "%s: could not execute: %s\r\n", progname, strerror(errno));
-      _exit(1);                 /* Inside the child; skip atexit(3) functions. */
-    } else if (p == -1) {
-      fprintf(stderr, "%s: could not fork: %s\r\n", progname, strerror(errno));
-      exit(1);
+      fprintf(stderr, "%s: could not execute: %s\r\n", progname,
+              strerror(errno));
+      _exit(1); /* Inside the child; skip atexit(3) functions. */
     }
 
     /* Close the opposite ends of pipes in the parent. */
