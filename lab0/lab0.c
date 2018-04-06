@@ -143,10 +143,10 @@ static void
 handler(int sig) {
   /* The handler should only call async-signal-safe functions */
   noeintr_write(2, (const uint8_t *) progname, strlen(progname));
-  const char *msg = ": caught signal sig";
+  const char *msg = ": caught signal: ";
   noeintr_write(2, (const uint8_t *) msg, strlen(msg));
-  noeintr_write(2, (const uint8_t *) sys_signame[sig],
-                strlen(sys_signame[sig]));
+  noeintr_write(2, (const uint8_t *) sys_siglist[sig],
+                strlen(sys_siglist[sig]));
   noeintr_write(2, (const uint8_t *) "\n", 1);
   _exit(4);
 }
