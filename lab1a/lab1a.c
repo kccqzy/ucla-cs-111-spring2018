@@ -89,7 +89,7 @@ get_one_char_echo(void) {
   if (bytes_read == 0) {
     return -1; /* EOF somehow */
   } else if (bytes_read == -1) {
-    fprintf(stderr, "%s: cannot read from standard input: %s\n", progname,
+    fprintf(stderr, "%s: cannot read from standard input: %s\r\n", progname,
             strerror(errno));
     exit(1);
   }
@@ -101,7 +101,7 @@ get_one_char_echo(void) {
   default: written = noeintr_write(1, buf, 1); break;
   }
   if (written == -1) {
-    fprintf(stderr, "%s: cannot write to standard output: %s\n", progname,
+    fprintf(stderr, "%s: cannot write to standard output: %s\r\n", progname,
             strerror(errno));
     exit(1);
   }
