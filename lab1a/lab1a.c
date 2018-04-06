@@ -130,27 +130,17 @@ close_or_die(int fd) {
 
 static void
 do_shell_interact(pid_t p, int infd, int outfd) {
-  FILE *logger = fopen("/tmp/lab1a.log", "w");
-  setlinebuf(logger);
-
   struct pollfd fds[] = {{.fd = 0, .events = POLLIN},
                          {.fd = outfd, .events = POLLIN}};
 
   bool expecting_shell_output = true;
   bool expecting_keyboard_input = true;
   while (1) {
-    fprintf(logger, "entering main event loop\n");
     int n_ready = poll(fds, 2, -1);
     DIE_IF_MINUS_ONE(n_ready, "could not poll");
-    fprintf(logger,
-            "woke up from poll(2):\n"
-            "    stdin revents = 0x%04x\n"
-            "    shell revents = 0x%04x\n",
-            fds[0].revents, fds[1].revents);
 
     /* Does the shell have any output for us? */
     if (expecting_shell_output && fds[1].revents & POLLIN) {
-      fprintf(logger, "shell fd POLLIN\n");
       uint8_t buf[65536];
       ssize_t bytes_read = noeintr_read(outfd, buf, sizeof buf);
       DIE_IF_MINUS_ONE(bytes_read, "could not read from pipe");
@@ -161,7 +151,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         close_or_die(outfd);
         fds[1].fd = -1; /* Ignore further events */
       } else {
-        fprintf(logger, "shell fd read %zu\n", (size_t) bytes_read);
         uint8_t outbuf[65536 * 2];
         size_t bytes_to_write = translate_buffer(buf, bytes_read, outbuf);
         ssize_t bytes_written = noeintr_write(1, outbuf, bytes_to_write);
@@ -173,7 +162,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     /* Has the shell exited? */
     if (expecting_shell_output &&
         (fds[1].revents & POLLHUP || fds[1].revents & POLLERR)) {
-      fprintf(logger, "shell fd POLLHUP or POLLERR\n");
       expecting_shell_output = false;
       close_or_die(outfd);
       fds[1].fd = -1; /* Ignore further events */
@@ -181,7 +169,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
 
     /* Has the user typed anything here? */
     if (expecting_keyboard_input && fds[0].revents & POLLIN) {
-      fprintf(logger, "stdin fd POLLIN\n");
       int ch = get_one_char_echo();
       if (ch == -1) {
         expecting_keyboard_input = false;
@@ -190,7 +177,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         int r = kill(p, SIGTERM);
         DIE_IF_MINUS_ONE(r, "could not send signal to shell");
       } else {
-        fprintf(logger, "stdin fd read char 0x%02x\n", ch);
         uint8_t c = ch == '\r' ? '\n' : ch;
         ssize_t wr = noeintr_write(infd, &c, 1);
         DIE_IF_MINUS_ONE(wr, "could not send character to shell");
@@ -200,14 +186,12 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     /* Has the user closed it? */
     if (expecting_keyboard_input &&
         (fds[0].revents & POLLHUP || fds[0].revents & POLLERR)) {
-      fprintf(logger, "stdin fd POLLHUP or POLLERR\n");
       expecting_keyboard_input = false;
       close_or_die(infd);
     }
 
     /* Have we received SIGPIPE? */
     if (expecting_shell_output && has_received_sigpipe) {
-      fprintf(logger, "received SIGPIPE\n");
       expecting_shell_output = false;
       close_or_die(outfd);
       fds[1].fd = -1; /* Ignore further events */
@@ -217,15 +201,11 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     if (!expecting_shell_output) { break; }
   }
 
-  fprintf(logger, "preparing to shut down\n");
-
   /* Now perform orderly shutdown. */
   int stat;
   waitpid(p, &stat, 0);
   fprintf(stderr, "SHELL EXIT SIGNAL=%d STATUS=%d\r\n", stat & 0x7f,
           (stat & 0xff00) >> 8);
-
-  fclose(logger);
 }
 
 static void
