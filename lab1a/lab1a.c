@@ -150,7 +150,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     }
 
     /* Does the shell have any output for us? */
-    if (expecting_shell_output && (fds[1].revents & POLLIN)) {
+    if (expecting_shell_output && fds[1].revents & POLLIN) {
       fprintf(logger, "shell fd POLLIN\n");
       uint8_t buf[65536];
       ssize_t bytes_read = noeintr_read(outfd, buf, sizeof buf);
@@ -174,7 +174,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
 
     /* Has the shell exited? */
     if (expecting_shell_output &&
-        ((fds[1].revents & POLLHUP) || (fds[1].revents & POLLERR))) {
+        (fds[1].revents & POLLHUP || fds[1].revents & POLLERR)) {
       fprintf(logger, "shell fd POLLHUP or POLLERR\n");
       expecting_shell_output = false;
       close(outfd);
@@ -182,7 +182,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     }
 
     /* Has the user typed anything here? */
-    if (expecting_keyboard_input && (fds[0].revents & POLLIN)) {
+    if (expecting_keyboard_input && fds[0].revents & POLLIN) {
       fprintf(logger, "stdin fd POLLIN\n");
       int ch = get_one_char_echo();
       if (ch == -1) {
@@ -199,7 +199,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
 
     /* Has the user closed it? */
     if (expecting_keyboard_input &&
-        ((fds[0].revents & POLLHUP) || (fds[0].revents & POLLERR))) {
+        (fds[0].revents & POLLHUP || fds[0].revents & POLLERR)) {
       fprintf(logger, "stdin fd POLLHUP or POLLERR\n");
       expecting_keyboard_input = false;
       close(infd);
