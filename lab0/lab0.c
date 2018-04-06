@@ -30,11 +30,17 @@ static void
 parse_args(int argc, char *argv[]) {
   while (1) {
     switch (getopt_long(argc, argv, "", prog_options, NULL)) {
-    case -1: return;
     case 'i': input = optarg; break;
     case 'o': output = optarg; break;
     case 's': segfault = true; break;
     case 'c': catch = true; break;
+    case -1:
+      /* Determine whether there are no-option parameters left */
+      if (optind == argc) {
+        return;
+      } else {
+        /* FALLTHROUGH */
+      }
     default:
       fprintf(
         stderr,
