@@ -262,10 +262,11 @@ main(int argc, char *argv[]) {
 
     pid_t p = fork();
     if (p == 0) {
-      char *const args[] = {"/bin/bash", NULL};
+      char bash[] = "/bin/bash";
+      char *const args[] = {bash, NULL};
       dup2(infd[0], 0);
       dup2(outfd[1], 1);
-      execvp("/bin/bash", args);
+      execvp(bash, args);
       fprintf(stderr, "%s: could not execute: %s\n", progname, strerror(errno));
       _exit(1);
     }

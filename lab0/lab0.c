@@ -21,19 +21,19 @@ static struct option prog_options[] = {
 static const char *progname = NULL;
 
 /* Parsed options */
-static char const *input = NULL;
-static char const *output = NULL;
-static bool segfault = false;
-static bool catch = false;
+static char const *opt_input = NULL;
+static char const *opt_output = NULL;
+static bool opt_segfault = false;
+static bool opt_catch = false;
 
 static void
 parse_args(int argc, char *argv[]) {
   while (1) {
     switch (getopt_long(argc, argv, "", prog_options, NULL)) {
-    case 'i': input = optarg; break;
-    case 'o': output = optarg; break;
-    case 's': segfault = true; break;
-    case 'c': catch = true; break;
+    case 'i': opt_input = optarg; break;
+    case 'o': opt_output = optarg; break;
+    case 's': opt_segfault = true; break;
+    case 'c': opt_catch = true; break;
     case -1:
       /* Determine whether there are no-option parameters left */
       if (optind == argc) {
@@ -96,14 +96,14 @@ do_copy(void) {
       return;
     } else if (bytes_read == -1) {
       fprintf(stderr, "%s: could not read from standard input (%s): %s\n",
-              progname, input ? input : "original standard input",
+              progname, opt_input ? opt_input : "original standard input",
               strerror(errno));
       _exit(5);
     }
     ssize_t bytes_written = noeintr_write(1, buf, bytes_read);
     if (bytes_written == -1) {
       fprintf(stderr, "%s: could not write to standard output (%s): %s\n",
-              progname, output ? output : "original standard output",
+              progname, opt_output ? opt_output : "original standard output",
               strerror(errno));
       _exit(5);
     }
@@ -112,23 +112,23 @@ do_copy(void) {
 
 static void
 reopen(void) {
-  if (input) {
-    int r = open(input, O_RDONLY);
+  if (opt_input) {
+    int r = open(opt_input, O_RDONLY);
     if (r == -1) {
       fprintf(stderr,
               "%s: could not open file %s as specified by '--input': %s\n",
-              progname, input, strerror(errno));
+              progname, opt_input, strerror(errno));
       _exit(2);
     }
     noeintr_dup2(r, 0);
   }
 
-  if (output) {
-    int r = open(output, O_WRONLY | O_CREAT, 0777);
+  if (opt_output) {
+    int r = open(opt_output, O_WRONLY | O_CREAT, 0777);
     if (r == -1) {
       fprintf(stderr,
               "%s: could not open file %s as specified by '--output': %s\n",
-              progname, output, strerror(errno));
+              progname, opt_output, strerror(errno));
       _exit(3);
     }
     noeintr_dup2(r, 1);
@@ -146,7 +146,7 @@ static void
 handler(int sig) {
   /* The handler should only call async-signal-safe functions */
   noeintr_write(2, (const uint8_t *) progname, strlen(progname));
-  char *msg = ": caught signal sig";
+  const char *msg = ": caught signal sig";
   noeintr_write(2, (const uint8_t *) msg, strlen(msg));
   noeintr_write(2, (const uint8_t *) sys_signame[sig],
                 strlen(sys_signame[sig]));
@@ -164,8 +164,8 @@ main(int argc, char *argv[]) {
   progname = argv[0];
   parse_args(argc, argv);
   reopen();
-  if (catch) register_handler();
-  if (segfault) cause_segfault();
+  if (opt_catch) register_handler();
+  if (opt_segfault) cause_segfault();
   do_copy();
   return 0;
 }
