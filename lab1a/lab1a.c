@@ -160,7 +160,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       /* NOTE that we assume we cannot have a pipe capacity greater than 65536
          bytes. This may not be the case in future versions of Linux. */
       if (bytes_read == -1) {
-        fprintf(stderr, "%s: could not read from pipe: %s\n", progname,
+        fprintf(stderr, "%s: could not read from pipe: %s\r\n", progname,
                 strerror(errno));
         exit(1);
       } else if (bytes_read == 0) {
