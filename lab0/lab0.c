@@ -123,7 +123,7 @@ reopen(void) {
   }
 
   if (opt_output) {
-    int r = open(opt_output, O_WRONLY | O_CREAT, 0777);
+    int r = open(opt_output, O_WRONLY | O_TRUNC | O_CREAT, 0777);
     DIE_IF_MINUS_ONE(r, 3, "could not open '%s' as specified by '--output'",
                      opt_output);
     int rr = noeintr_dup2(r, 1);
