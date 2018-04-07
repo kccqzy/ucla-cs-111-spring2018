@@ -18,13 +18,16 @@ static const char *progname = NULL;
 static struct termios original_termios;
 static volatile bool has_received_sigpipe = false;
 
+#define DIE(reason, ...)                                                       \
+  do {                                                                         \
+    fprintf(stderr, "%s: " reason ": %s\r\n", progname, ##__VA_ARGS__,         \
+            strerror(errno));                                                  \
+    exit(1);                                                                   \
+  } while (0)
+
 #define DIE_IF_MINUS_ONE(rv, reason, ...)                                      \
   do {                                                                         \
-    if (rv == -1) {                                                            \
-      fprintf(stderr, "%s: " reason ": %s\r\n", progname, ##__VA_ARGS__,       \
-              strerror(errno));                                                \
-      exit(1);                                                                 \
-    }                                                                          \
+    if (rv == -1) { DIE(reason, ##__VA_ARGS__); }                              \
   } while (0)
 
 static void
@@ -124,8 +127,10 @@ translate_buffer(const uint8_t *inbuf, size_t in_size, uint8_t *outbuf) {
 
 static void
 close_or_die(int fd) {
-  int r = close(fd);
-  DIE_IF_MINUS_ONE(r, "could not close file descriptor");
+  while (close(fd)) {
+    if (errno == EINTR) { continue; }
+    DIE("could not close");
+  }
 }
 
 static void
