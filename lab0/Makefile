@@ -3,11 +3,11 @@ lab0: lab0.c
 
 .PHONY: clean dist check
 clean:
-	-rm -rf *.o *.s lab0 *.dSYM lab0.tar.gz
+	-rm -rf *.o *.s lab0 *.dSYM lab0-404816794.tar.gz
 
-dist: lab0.tar.gz
+dist: lab0-404816794.tar.gz
 
-lab0.tar.gz: README lab0.c smoke_test.sh
+lab0-404816794.tar.gz: README lab0.c smoke_test.sh
 	tar czf $@ $^
 
 check: lab0 smoke_test.sh
