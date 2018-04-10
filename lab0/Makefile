@@ -3,7 +3,7 @@ lab0: lab0.c
 
 .PHONY: clean dist check
 clean:
-	-rm -rf *.o *.s lab0 *.dSYM
+	-rm -rf *.o *.s lab0 *.dSYM lab0.tar.gz
 
 dist: lab0.tar.gz
 
