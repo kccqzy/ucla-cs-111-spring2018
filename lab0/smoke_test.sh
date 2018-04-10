@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# NAME: Joe Qian
+# EMAIL: qzy@g.ucla.edu
+# ID: 404816794
+
 echo "Running smoke tests" >&2
 
 # Test when --input and --output are provided

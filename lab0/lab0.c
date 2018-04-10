@@ -1,4 +1,9 @@
 #define _GNU_SOURCE
+
+/* NAME: Joe Qian */
+/* EMAIL: qzy@g.ucla.edu */
+/* ID: 404816794 */
+
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
