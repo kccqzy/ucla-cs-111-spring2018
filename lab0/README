@@ -4,4 +4,31 @@ NAME: Joe Qian
 EMAIL: qzy@g.ucla.edu
 ID: 404816794
 
-This is an implementation of Project 0.
+This is an implementation of Project 0. The files included in this submission,
+as reported by `tar tf *.tar.gz` are the following:
+
+    README ............. This readme file
+    lab0.c ............. The main C source code
+    smoke_test.sh ...... A simple, non-comprehensive testing utility
+    Makefile ........... A Makefile to build the project
+    backtrace.png ...... A screenshot of a GDB session with backtrace
+    breakpoint.png ..... A screenshot of a GDB session with a breakpoint
+
+The smoke tests are particularly simple; they are in fact not comprehensive at
+all, but rather just a basic test of the functionality. It includes six test
+cases, namely:
+
+1. Test when --input and --output are provided
+2. Test when only --input is provided
+3. Test when only --output is provided
+4. Test large files
+5. Test empty files
+5. Test causing and catching segfaults
+
+Interactions between different features are not tested in this smoke test,
+neither do error conditions.
+
+There are no known limitations or incomplete features. Error handling in the
+program is done carefully; every system call that can result in an error is
+checked for the error, and the program will exit with a return code of 5 (not
+specified in the spec) if those fail.
