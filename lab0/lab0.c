@@ -117,6 +117,15 @@ do_copy(void) {
 }
 
 static void
+close_or_die(int fd) {
+  int r;
+  while (-1 == (r = close(fd))) {
+    if (errno == EINTR) { continue; }
+    DIE_IF_MINUS_ONE(r, 5, "could not close");
+  }
+}
+
+static void
 reopen(void) {
   if (opt_input) {
     int r = open(opt_input, O_RDONLY);
@@ -125,6 +134,7 @@ reopen(void) {
     int rr = noeintr_dup2(r, 0);
     DIE_IF_MINUS_ONE(rr, 5,
                      "could not duplicate file descriptor as standard input");
+    close_or_die(r);
   }
 
   if (opt_output) {
@@ -134,6 +144,7 @@ reopen(void) {
     int rr = noeintr_dup2(r, 1);
     DIE_IF_MINUS_ONE(rr, 5,
                      "could not duplicate file descriptor as standard output");
+    close_or_die(r);
   }
 }
 
