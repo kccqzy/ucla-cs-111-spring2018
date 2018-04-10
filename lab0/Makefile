@@ -7,7 +7,7 @@ clean:
 
 dist: lab0-404816794.tar.gz
 
-lab0-404816794.tar.gz: README lab0.c smoke_test.sh Makefile
+lab0-404816794.tar.gz: README lab0.c smoke_test.sh Makefile backtrace.png breakpoint.png
 	tar czf $@ $^
 
 check: lab0 smoke_test.sh
