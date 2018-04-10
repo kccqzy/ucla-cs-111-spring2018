@@ -1,11 +1,14 @@
 lab0: lab0.c
 	gcc -g -std=c99 -Wall -Wextra -O2 $^ -o $@
 
-.PHONY: clean dist
+.PHONY: clean dist check
 clean:
 	-rm -rf *.o *.s lab0 *.dSYM
 
 dist: lab0.tar.gz
 
-lab0.tar.gz: README lab0.c
+lab0.tar.gz: README lab0.c smoke_test.sh
 	tar czf $@ $^
+
+check: lab0 smoke_test.sh
+	./smoke_test.sh
