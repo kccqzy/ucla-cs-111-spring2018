@@ -1,3 +1,7 @@
+# NAME: Joe Qian
+# EMAIL: qzy@g.ucla.edu
+# ID: 404816794
+
 lab0: lab0.c
 	gcc -g -std=c99 -Wall -Wextra -O2 $^ -o $@
 
