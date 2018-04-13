@@ -15,6 +15,9 @@ use nix::unistd::Pid;
 use nix::sys::signal::kill;
 use termios::*;
 
+const CR: u8 = 13;
+const LF: u8 = 10;
+
 pub struct RawTerminalRAII {
     pub original_termios: termios::Termios,
 }
@@ -49,10 +52,8 @@ fn read_char_echo(stdin: &mut File, stdout: &mut File) -> Option<u8> {
     if read_size == 0 {
         None
     } else {
-        let cr = 13;
-        let lf = 10;
-        if buf[0] == cr || buf[0] == lf {
-            stdout.write_all(&[cr, lf]).unwrap();
+        if buf[0] == CR || buf[0] == LF {
+            stdout.write_all(&[CR, LF]).unwrap();
             Some(buf[0])
         } else if buf[0] == 4 {
             None
@@ -75,8 +76,8 @@ fn translate_buffer(inbuf: &[u8]) -> Vec<u8> {
     inbuf
         .iter()
         .flat_map(|c| {
-            if *c == 10 {
-                Some(13).into_iter().chain(Some(10).into_iter())
+            if *c == LF {
+                Some(CR).into_iter().chain(Some(LF).into_iter())
             } else {
                 Some(*c).into_iter().chain(None.into_iter())
             }
@@ -105,17 +106,24 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             PollFd::new(0, EventFlags::POLLIN),
             PollFd::new(child_stdout_fd, EventFlags::POLLIN),
         ];
+
+        fn has_input(pfd: &PollFd) -> bool {
+            pfd.revents()
+                .map_or(false, |e| e.contains(EventFlags::POLLIN))
+        }
+        fn has_hup(pfd: &PollFd) -> bool {
+            pfd.revents().map_or(false, |e| {
+                e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
+            })
+        }
+
         let mut expecting_shell_output = true;
         let mut expecting_keyboard_input = true;
         loop {
             poll(&mut poll_fds, -1).unwrap();
 
             // Does the shell have any output for us?
-            if expecting_shell_output
-                && poll_fds[1]
-                    .revents()
-                    .map_or(false, |e| e.contains(EventFlags::POLLIN))
-            {
+            if expecting_shell_output && has_input(&poll_fds[1]) {
                 let mut buf = [0; 65536];
                 let bytes_read = child_stdout.read(&mut buf).unwrap();
                 if bytes_read == 0 {
@@ -128,32 +136,24 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             }
 
             // Has the shell exited?
-            if expecting_shell_output && poll_fds[1].revents().map_or(false, |e| {
-                e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
-            }) {
+            if expecting_shell_output && has_hup(&poll_fds[1]) {
                 expecting_shell_output = false;
                 poll_fds[1] = PollFd::new(-1, EventFlags::empty());
             }
 
             // Has the user typed anything here?
-            if expecting_keyboard_input
-                && poll_fds[0]
-                    .revents()
-                    .map_or(false, |e| e.contains(EventFlags::POLLIN))
-            {
+            if expecting_keyboard_input && has_input(&poll_fds[0]) {
                 match read_char_echo(stdin, stdout) {
                     None => expecting_keyboard_input = false,
                     Some(3) => kill(pid, Some(Signal::SIGTERM)).unwrap(),
                     Some(c) => child_stdin
-                        .write_all(&[if c == 13 { 10 } else { c }])
+                        .write_all(&[if c == CR { LF } else { c }])
                         .unwrap(),
                 }
             }
 
             // Has the user closed it?
-            if expecting_keyboard_input && poll_fds[0].revents().map_or(false, |e| {
-                e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
-            }) {
+            if expecting_keyboard_input && has_hup(&poll_fds[0]) {
                 expecting_keyboard_input = false;
             }
 
