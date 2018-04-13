@@ -94,12 +94,9 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
     let pid = Pid::from_raw(child.id() as i32);
 
     {
-        // This opening brace is just to restrict the scope of the mutable
-        // borrow of the child's stdin and stdout.
-        let child_stdout = child.stdout.as_mut().unwrap();
         // Inspecting the source here reveals that the child's stdin and stdout are
         // thin wrappers of a file descriptor. No buffering yay!
-        let child_stdout_fd = child_stdout.as_raw_fd();
+        let child_stdout_fd = child.stdout.as_ref().unwrap().as_raw_fd();
 
         let mut poll_fds = [
             PollFd::new(0, EventFlags::POLLIN),
@@ -116,16 +113,15 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             })
         }
 
-        let mut expecting_shell_output = true;
         loop {
             poll(&mut poll_fds, -1).unwrap();
 
             // Does the shell have any output for us?
-            if expecting_shell_output && has_input(&poll_fds[1]) {
+            if child.stdout.is_some() && has_input(&poll_fds[1]) {
                 let mut buf = [0; 65536];
-                let bytes_read = child_stdout.read(&mut buf).unwrap();
+                let bytes_read = child.stdout.as_mut().unwrap().read(&mut buf).unwrap();
                 if bytes_read == 0 {
-                    expecting_shell_output = false;
+                    child.stdout = None;
                     poll_fds[1] = PollFd::new(-1, EventFlags::empty());
                 } else {
                     let outbuf = translate_buffer(&buf[0..bytes_read]);
@@ -134,8 +130,8 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             }
 
             // Has the shell exited?
-            if expecting_shell_output && has_hup(&poll_fds[1]) {
-                expecting_shell_output = false;
+            if child.stdout.is_some() && has_hup(&poll_fds[1]) {
+                child.stdout = None;
                 poll_fds[1] = PollFd::new(-1, EventFlags::empty());
             }
 
@@ -160,7 +156,7 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
 
             // TODO SIGPIPE handling
 
-            if !expecting_shell_output {
+            if child.stdout.is_none() {
                 break;
             }
         }
