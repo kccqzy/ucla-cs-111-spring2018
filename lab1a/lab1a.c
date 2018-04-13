@@ -149,8 +149,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       uint8_t buf[65536];
       ssize_t bytes_read = noeintr_read(outfd, buf, sizeof buf);
       DIE_IF_MINUS_ONE(bytes_read, "could not read from pipe");
-      /* NOTE that we assume we cannot have a pipe capacity greater than 65536
-         bytes. This may not be the case in future versions of Linux. */
       if (bytes_read == 0) {
         expecting_shell_output = false;
         close_or_die(outfd);
@@ -161,6 +159,9 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         ssize_t bytes_written = noeintr_write(1, outbuf, bytes_to_write);
         DIE_IF_MINUS_ONE(bytes_written,
                          "could not write shell output to standard output");
+        continue;
+        /* The shell may have had more output beyond those we've consumed, so
+           try reading again. */
       }
     }
 

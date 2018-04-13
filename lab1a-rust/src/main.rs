@@ -125,7 +125,10 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
                     poll_fds[1] = PollFd::new(-1, EventFlags::empty());
                 } else {
                     let outbuf = translate_buffer(&buf[0..bytes_read]);
-                    stdout.write_all(&outbuf).unwrap()
+                    stdout.write_all(&outbuf).unwrap();
+                    continue;
+                    // The shell may have had more output beyond those we've consumed, so
+                    // try reading again.
                 }
             }
 
