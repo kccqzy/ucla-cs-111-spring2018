@@ -1,26 +1,36 @@
+extern crate nix;
 extern crate termios;
 
+use std::os::unix::process::ExitStatusExt;
+use nix::sys::signal::Signal;
+use std::ops::BitOr;
+use std::process::{Command, Stdio};
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
 use std::os::unix::prelude::*;
 use std::process::exit;
+use nix::poll::{poll, EventFlags, PollFd};
+use nix::unistd::Pid;
+use nix::sys::signal::kill;
 use termios::*;
 
 pub struct RawTerminalRAII {
     pub original_termios: termios::Termios,
 }
 
-fn new_raw_terminal() -> RawTerminalRAII {
-    let fd = 0;
-    let mut termios = Termios::from_fd(fd).unwrap();
-    let orig = termios;
-    termios.c_iflag = ISTRIP;
-    termios.c_oflag = 0;
-    termios.c_lflag = 0;
-    tcsetattr(fd, TCSANOW, &termios).unwrap();
-    RawTerminalRAII {
-        original_termios: orig,
+impl RawTerminalRAII {
+    fn new() -> RawTerminalRAII {
+        let fd = 0;
+        let mut termios = Termios::from_fd(fd).unwrap();
+        let orig = termios;
+        termios.c_iflag = ISTRIP;
+        termios.c_oflag = 0;
+        termios.c_lflag = 0;
+        tcsetattr(fd, TCSANOW, &termios).unwrap();
+        RawTerminalRAII {
+            original_termios: orig,
+        }
     }
 }
 
@@ -33,25 +43,149 @@ impl Drop for RawTerminalRAII {
     }
 }
 
+fn read_char_echo(stdin: &mut File, stdout: &mut File) -> Option<u8> {
+    let mut buf = [0];
+    let read_size = stdin.read(&mut buf).unwrap();
+    if read_size == 0 {
+        None
+    } else {
+        let cr = 13;
+        let lf = 10;
+        if buf[0] == cr || buf[0] == lf {
+            stdout.write_all(&[cr, lf]).unwrap();
+            Some(buf[0])
+        } else if buf[0] == 4 {
+            None
+        } else {
+            stdout.write(&buf).unwrap();
+            Some(buf[0])
+        }
+    }
+}
+
+fn do_echo(stdin: &mut File, stdout: &mut File) {
+    loop {
+        if read_char_echo(stdin, stdout).is_none() {
+            break;
+        }
+    }
+}
+
+fn translate_buffer(inbuf: &[u8]) -> Vec<u8> {
+    inbuf
+        .iter()
+        .flat_map(|c| {
+            if *c == 10 {
+                Some(13).into_iter().chain(Some(10).into_iter())
+            } else {
+                Some(*c).into_iter().chain(None.into_iter())
+            }
+        })
+        .collect()
+}
+
+fn do_shell(stdin: &mut File, stdout: &mut File) {
+    let mut child = Command::new("/bin/bash")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = Pid::from_raw(child.id() as i32);
+
+    {
+        // This opening brace is just to restrict the scope of the mutable
+        // borrow of the child's stdin and stdout.
+        let child_stdin = child.stdin.as_mut().unwrap();
+        let child_stdout = child.stdout.as_mut().unwrap();
+        // Inspecting the source here reveals that the child's stdin and stdout are
+        // thin wrappers of a file descriptor. No buffering yay!
+        let child_stdout_fd = child_stdout.as_raw_fd();
+
+        let mut poll_fds = [
+            PollFd::new(0, EventFlags::POLLIN),
+            PollFd::new(child_stdout_fd, EventFlags::POLLIN),
+        ];
+        let mut expecting_shell_output = true;
+        let mut expecting_keyboard_input = true;
+        loop {
+            poll(&mut poll_fds, -1).unwrap();
+
+            // Does the shell have any output for us?
+            if expecting_shell_output
+                && poll_fds[1]
+                    .revents()
+                    .map_or(false, |e| e.contains(EventFlags::POLLIN))
+            {
+                let mut buf = [0; 65536];
+                let bytes_read = child_stdout.read(&mut buf).unwrap();
+                if bytes_read == 0 {
+                    expecting_shell_output = false;
+                    poll_fds[1] = PollFd::new(-1, EventFlags::empty());
+                } else {
+                    let outbuf = translate_buffer(&buf[0..bytes_read]);
+                    stdout.write_all(&outbuf).unwrap()
+                }
+            }
+
+            // Has the shell exited?
+            if expecting_shell_output && poll_fds[1].revents().map_or(false, |e| {
+                e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
+            }) {
+                expecting_shell_output = false;
+                poll_fds[1] = PollFd::new(-1, EventFlags::empty());
+            }
+
+            // Has the user typed anything here?
+            if expecting_keyboard_input
+                && poll_fds[0]
+                    .revents()
+                    .map_or(false, |e| e.contains(EventFlags::POLLIN))
+            {
+                match read_char_echo(stdin, stdout) {
+                    None => expecting_keyboard_input = false,
+                    Some(3) => kill(pid, Some(Signal::SIGTERM)).unwrap(),
+                    Some(c) => child_stdin
+                        .write_all(&[if c == 13 { 10 } else { c }])
+                        .unwrap(),
+                }
+            }
+
+            // Has the user closed it?
+            if expecting_keyboard_input && poll_fds[0].revents().map_or(false, |e| {
+                e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
+            }) {
+                expecting_keyboard_input = false;
+            }
+
+            // TODO SIGPIPE handling
+
+            if !expecting_shell_output {
+                break;
+            }
+        }
+    }
+
+    // Now perform orderly shutdown
+    let status = child.wait().unwrap();
+    eprintln!(
+        "SHELL EXIT SIGNAL={} STATUS={}\r",
+        status.signal().unwrap_or(0),
+        status.code().unwrap_or(0)
+    )
+}
+
 fn main() {
     let mut stdin = unsafe { File::from_raw_fd(0) };
     let mut stdout = unsafe { File::from_raw_fd(1) };
-    let _raw_terminal_raii = new_raw_terminal();
-    loop {
-        let mut buf = [0];
-        let read_size = stdin.read(&mut buf).unwrap();
-        if read_size == 0 {
-            break;
-        } else {
-            let cr = 13;
-            let lf = 10;
-            if buf[0] == cr || buf[0] == lf {
-                stdout.write_all(&[cr, lf]).unwrap();
-            } else if buf[0] == 4 {
-                break;
-            } else {
-                stdout.write(&buf).unwrap();
-            }
-        }
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 && args[1] == "--shell" {
+        let _raw_terminal_raii = RawTerminalRAII::new();
+        do_shell(&mut stdin, &mut stdout)
+    } else if args.len() > 1 {
+        eprintln!("{}: unrecognized arguments", args[0])
+    } else {
+        let _raw_terminal_raii = RawTerminalRAII::new();
+        do_echo(&mut stdin, &mut stdout)
     }
 }
