@@ -96,7 +96,6 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
     {
         // This opening brace is just to restrict the scope of the mutable
         // borrow of the child's stdin and stdout.
-        let child_stdin = child.stdin.as_mut().unwrap();
         let child_stdout = child.stdout.as_mut().unwrap();
         // Inspecting the source here reveals that the child's stdin and stdout are
         // thin wrappers of a file descriptor. No buffering yay!
@@ -118,7 +117,6 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
         }
 
         let mut expecting_shell_output = true;
-        let mut expecting_keyboard_input = true;
         loop {
             poll(&mut poll_fds, -1).unwrap();
 
@@ -142,19 +140,22 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             }
 
             // Has the user typed anything here?
-            if expecting_keyboard_input && has_input(&poll_fds[0]) {
+            if child.stdin.is_some() && has_input(&poll_fds[0]) {
                 match read_char_echo(stdin, stdout) {
-                    None => expecting_keyboard_input = false,
+                    None => child.stdin = None,
                     Some(3) => kill(pid, Some(Signal::SIGTERM)).unwrap(),
-                    Some(c) => child_stdin
+                    Some(c) => child
+                        .stdin
+                        .as_mut()
+                        .unwrap()
                         .write_all(&[if c == CR { LF } else { c }])
                         .unwrap(),
                 }
             }
 
             // Has the user closed it?
-            if expecting_keyboard_input && has_hup(&poll_fds[0]) {
-                expecting_keyboard_input = false;
+            if child.stdin.is_some() && has_hup(&poll_fds[0]) {
+                child.stdin = None
             }
 
             // TODO SIGPIPE handling
