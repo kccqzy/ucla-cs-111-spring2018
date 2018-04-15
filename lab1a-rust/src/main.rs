@@ -142,7 +142,7 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             if child.stdin.is_some() && has_input(&poll_fds[0]) {
                 match read_char_echo(stdin, stdout) {
                     None => child.stdin = None,
-                    Some(3) => kill(pid, Some(Signal::SIGTERM)).unwrap(),
+                    Some(3) => kill(pid, Some(Signal::SIGINT)).unwrap(),
                     Some(c) => child
                         .stdin
                         .as_mut()

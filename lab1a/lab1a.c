@@ -180,7 +180,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
         expecting_keyboard_input = false;
         close_or_die(infd);
       } else if (ch == 3) {
-        int r = kill(p, SIGTERM);
+        int r = kill(p, SIGINT);
         DIE_IF_MINUS_ONE(r, "could not send signal to shell");
       } else {
         uint8_t c = ch == '\r' ? '\n' : ch;
