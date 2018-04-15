@@ -1,0 +1,12 @@
+# CS 111 Project 1A
+
+NAME: Joe Qian
+EMAIL: qzy@g.ucla.edu
+ID: 404816794
+
+This is an implementation of Project 1A. The files included in this submission,
+as reported by `tar tf *.tar.gz` are the following:
+
+    README ............. This readme file
+    lab1a.c ............ The main C source code
+    Makefile ........... A Makefile to build the project
