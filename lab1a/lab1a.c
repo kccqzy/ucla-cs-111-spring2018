@@ -185,7 +185,15 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       } else {
         uint8_t c = ch == '\r' ? '\n' : ch;
         ssize_t wr = noeintr_write(infd, &c, 1);
-        DIE_IF_MINUS_ONE(wr, "could not send character to shell");
+        if (wr == -1) {
+          if (errno == EPIPE) {
+            expecting_shell_output = false;
+            close_or_die(outfd);
+            fds[1].fd = -1; /* Ignore further events */
+          } else {
+            DIE("could not send character to shell");
+          }
+        }
       }
     }
 
@@ -196,7 +204,9 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       close_or_die(infd);
     }
 
-    /* Have we received SIGPIPE? */
+    /* Have we received SIGPIPE? Note that this is dead code because we would
+       have received EPIPE from the earlier write(2) first. We handle EPIPE
+       specially. */
     if (expecting_shell_output && has_received_sigpipe) {
       expecting_shell_output = false;
       close_or_die(outfd);

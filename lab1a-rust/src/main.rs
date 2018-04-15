@@ -6,8 +6,7 @@ use nix::sys::signal::Signal;
 use std::ops::BitOr;
 use std::process::{Command, Stdio};
 use std::fs::File;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Error, Read, Write};
 use std::os::unix::prelude::*;
 use std::process::exit;
 use nix::poll::{poll, EventFlags, PollFd};
@@ -148,7 +147,14 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
                         .as_mut()
                         .unwrap()
                         .write_all(&[if c == CR { LF } else { c }])
-                        .unwrap(),
+                        .unwrap_or_else(|e: Error| {
+                            if let std::io::ErrorKind::BrokenPipe = e.kind() {
+                                child.stdout = None;
+                                poll_fds[1] = PollFd::new(-1, EventFlags::empty());
+                            } else {
+                                panic!("unexpected error when writing to shell: {:?}", e)
+                            }
+                        }),
                 }
             }
 
@@ -156,8 +162,6 @@ fn do_shell(stdin: &mut File, stdout: &mut File) {
             if child.stdin.is_some() && has_hup(&poll_fds[0]) {
                 child.stdin = None
             }
-
-            // TODO SIGPIPE handling
 
             if child.stdout.is_none() {
                 break;
