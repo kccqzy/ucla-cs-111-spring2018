@@ -16,7 +16,6 @@
 
 static const char *progname = NULL;
 static struct termios original_termios;
-static volatile bool has_received_sigpipe = false;
 
 #define DIE(reason, ...)                                                       \
   do {                                                                         \
@@ -204,15 +203,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
       close_or_die(infd);
     }
 
-    /* Have we received SIGPIPE? Note that this is dead code because we would
-       have received EPIPE from the earlier write(2) first. We handle EPIPE
-       specially. */
-    if (expecting_shell_output && has_received_sigpipe) {
-      expecting_shell_output = false;
-      close_or_die(outfd);
-      fds[1].fd = -1; /* Ignore further events */
-    }
-
     /* Return if we do not expect any more shell output. */
     if (!expecting_shell_output) { break; }
   }
@@ -222,11 +212,6 @@ do_shell_interact(pid_t p, int infd, int outfd) {
   waitpid(p, &stat, 0);
   fprintf(stderr, "SHELL EXIT SIGNAL=%d STATUS=%d\r\n", stat & 0x7f,
           (stat & 0xff00) >> 8);
-}
-
-static void
-handler(int sig) {
-  if (sig == SIGSEGV) { has_received_sigpipe = true; }
 }
 
 static void
@@ -264,8 +249,10 @@ main(int argc, char *argv[]) {
   setup_term();
 
   if (do_shell) {
-    /* Install SIGPIPE handler */
-    signal(SIGPIPE, handler);
+    /* Install SIGPIPE handler. We ignore it in favor of handling EPIPE. */
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+      DIE("could not install signal handler for SIGPIPE");
+    }
     /* Make pipes */
     int infd[2], outfd[2];
     pipe_or_die(infd);
