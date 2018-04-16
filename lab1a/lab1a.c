@@ -181,14 +181,21 @@ do_shell_interact(pid_t p, int infd, int outfd) {
     /* Has the user typed anything here? */
     if (expecting_keyboard_input && fds[0].revents & POLLIN) {
       int ch = get_one_char_echo();
-      if (ch == -1) {
+      switch (ch) {
+      case -1:
         expecting_keyboard_input = false;
         close_or_die(infd);
-      } else if (ch == 3) {
-        int r = kill(p, SIGINT);
-        DIE_IF_MINUS_ONE(r, "could not send signal to shell");
-      } else {
-        uint8_t c = ch == '\r' ? '\n' : ch;
+        break;
+      case 3: /* ^C */
+        DIE_IF_MINUS_ONE(kill(p, SIGINT), "could not send signal to shell");
+        /* Special processing: the shell will not immediately receive SIGINT
+           because it is currently blocked in a read(2) call. It apparently will
+           auto-restart the read(2), and will handle the signal only when this
+           read completes. So we additionally send a newline. */
+
+        /* FALLTHROUGH */
+      default: {
+        uint8_t c = ch == '\r' || ch == 3 ? '\n' : ch;
         ssize_t wr = noeintr_write(infd, &c, 1);
         if (wr == -1) {
           if (errno == EPIPE) {
@@ -199,6 +206,7 @@ do_shell_interact(pid_t p, int infd, int outfd) {
             DIE("could not send character to shell");
           }
         }
+      } break;
       }
     }
 
