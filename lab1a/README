@@ -10,3 +10,32 @@ as reported by `tar tf *.tar.gz` are the following:
     README ............. This readme file
     lab1a.c ............ The main C source code
     Makefile ........... A Makefile to build the project
+
+Additionally notes follow.
+
+1. Although the intention of the spec is that the program should remain
+responsive and process events even when read(2)/write(2) blocks, it is
+currently unable to fully achieve this due to the fact that the spec also
+requires the poll(2) call monitor only the keyboard and the pipe to the
+shell's stdout. It is then perfectly possible for the program to be blocked
+when writing to the shell's stdin, or even writing to the current terminal
+device. It must be noted that this issue is inherent in the spec, and not an
+implementation issue.
+
+2. SIGPIPE handling. This program explicitly ignores SIGPIPE. As I have
+explained on Piazza, whenever the write end of a pipe fails because the read
+end is closed, both EPIPE is returned as errno and SIGPIPE is delivered. There
+is no need to handle both. I find it much easier to ignore SIGPIPE and handle
+EPIPE properly at the same place where I am doing the write(2). Also a SIGPIPE
+doesn't give us information about which pipe is causing the issue. Personally
+I believe the default behavior of terminating on SIGPIPE is a relic from the
+past and only suited for typical command line apps; when you chain together
+several commands, when the last one exits, the earlier ones in the pipeline
+are automatically killed because their data is no longer needed. This behavior
+is ill-suited in complicated apps that communicate through pipes and sockets
+beyond just stdout. Most apps that perform socket operations ignore SIGPIPE as
+well. Some programming languages like Rust by default ignores SIGPIPE.
+
+3. Negative timeout in poll(2). Although the spec specifies zero as the timeout
+passed to poll(2), I am using a negative number. This is more inline with the
+intention of poll(2).
