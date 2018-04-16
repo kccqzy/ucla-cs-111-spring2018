@@ -178,6 +178,8 @@ fn server_event_loop(mut socketstream: TcpStream) {
         }
     }
 
+    let mut client_dead = false;
+
     loop {
         poll_fds[2] = if child_stdin_buf.has_content() {
             PollFd::new(child_stdin_fd, EventFlags::POLLOUT)
@@ -197,24 +199,28 @@ fn server_event_loop(mut socketstream: TcpStream) {
         poll(&mut poll_fds, -1).unwrap();
 
         // Always handle all readers first
-        if child.stdout.is_some() && has_input(&poll_fds[0]) {
-            if do_read(child.stdout.as_mut().unwrap(), &mut socket_buf) == false {
-                child.stdout = None;
-                poll_fds[0] = PollFd::new(-1, EventFlags::empty());
-            }
+        if child.stdout.is_some()
+            && (has_input(&poll_fds[0])
+                && do_read(child.stdout.as_mut().unwrap(), &mut socket_buf) == false
+                || has_hup(&poll_fds[0]))
+        {
+            child.stdout = None;
+            poll_fds[0] = PollFd::new(-1, EventFlags::empty());
         }
 
-        if child.stderr.is_some() && has_input(&poll_fds[1]) {
-            if do_read(child.stderr.as_mut().unwrap(), &mut socket_buf) == false {
-                child.stderr = None;
-                poll_fds[1] = PollFd::new(-1, EventFlags::empty());
-            }
+        if child.stderr.is_some()
+            && (has_input(&poll_fds[1])
+                && do_read(child.stderr.as_mut().unwrap(), &mut socket_buf) == false
+                || has_hup(&poll_fds[1]))
+        {
+            child.stderr = None;
+            poll_fds[1] = PollFd::new(-1, EventFlags::empty());
         }
 
         if has_input(&poll_fds[3]) {
             if do_read(&mut socketstream, &mut child_stdin_buf) == false {
                 // No more read
-                // TODO ignore for now
+                client_dead = true;
             }
         }
 
@@ -228,10 +234,25 @@ fn server_event_loop(mut socketstream: TcpStream) {
         if can_output(&poll_fds[3]) && socket_buf.has_content() {
             if do_write(&mut socket_buf, &mut socketstream) == false {
                 // No more write to the socket
-                // TODO
+                client_dead = true;
             }
         }
+
+        // Shutdown handling: quit if the shell has died
+        if child.stdin.is_none() && child.stdout.is_none() && child.stderr.is_none() {
+            break;
+        }
+
+        // Shutdown handling: quit if the client has died
+        // TODO
     }
+
+    let status = child.wait().unwrap();
+    eprintln!(
+        "SHELL EXIT SIGNAL={} STATUS={}\r",
+        status.signal().unwrap_or(0),
+        status.code().unwrap_or(0)
+    )
 }
 
 fn main() {
