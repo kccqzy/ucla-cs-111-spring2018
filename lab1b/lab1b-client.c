@@ -248,6 +248,7 @@ interact_with_server(int socket_fd) {
       }
       DIE_IF_MINUS_ONE(written, "cannot write to screen");
 
+      if (*buf == '\r') *buf = '\n';
       written = write(socket_fd, buf, 1);
       if (written == -1 && errno == EPIPE) { return; }
       DIE_IF_MINUS_ONE(written, "cannot write to socket");

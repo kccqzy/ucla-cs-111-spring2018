@@ -1,0 +1,8 @@
+[package]
+name = "lab1b-rust"
+version = "0.1.0"
+authors = ["Zhouyu Qian <qzy@qzy.io>"]
+
+[dependencies]
+termios = "0.3"
+nix = "0.10.0"
