@@ -126,10 +126,6 @@ fn server_event_loop(mut socketstream: TcpStream) {
             EventFlags::POLLIN.bitor(EventFlags::POLLOUT),
         ),
     ];
-    // TODO this is stupid: after we accept a connection, this poll(2) call will
-    // return immediately because both the socket and the child stdin are
-    // writable, so it will return immediately; we should poll(2) for this
-    // condition only when we have data to write there respectively
 
     fn has_input(pfd: &PollFd) -> bool {
         pfd.revents()
@@ -183,6 +179,21 @@ fn server_event_loop(mut socketstream: TcpStream) {
     }
 
     loop {
+        poll_fds[2] = if child_stdin_buf.has_content() {
+            PollFd::new(child_stdin_fd, EventFlags::POLLOUT)
+        } else {
+            PollFd::new(-1, EventFlags::empty())
+        };
+
+        poll_fds[3] = if socket_buf.has_content() {
+            PollFd::new(
+                socketstream.as_raw_fd(),
+                EventFlags::POLLIN.bitor(EventFlags::POLLOUT),
+            )
+        } else {
+            PollFd::new(socketstream.as_raw_fd(), EventFlags::POLLIN)
+        };
+
         poll(&mut poll_fds, -1).unwrap();
 
         // Always handle all readers first
