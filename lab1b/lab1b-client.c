@@ -54,6 +54,12 @@ restore_term(void) {
 
 static void
 setup_term(void) {
+  if (!isatty(0) || !isatty(1)) {
+    fprintf(stderr, "%s: stdin and stdout must be connected to a terminal\n",
+            progname);
+    exit(1);
+  }
+
   struct termios t;
   int get_rv = tcgetattr(0, &t);
   DIE_IF_MINUS_ONE(get_rv, "cannot get terminal attributes for standard input");
@@ -256,6 +262,7 @@ interact_with_server(int socket_fd) {
 int
 main(int argc, char* argv[]) {
   progname = argv[0];
+
   parse_args(argc, argv);
   if (!opt_port) {
     fprintf(stderr, "%s: required argument '--port' not provided\n", argv[0]);
@@ -263,6 +270,7 @@ main(int argc, char* argv[]) {
   }
   signal(SIGPIPE, SIG_IGN); /* Prefer handling EPIPE */
   int socket_fd = try_connect();
+
   setup_term();
   interact_with_server(socket_fd);
 }

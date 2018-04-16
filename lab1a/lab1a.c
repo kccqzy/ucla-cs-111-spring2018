@@ -40,6 +40,12 @@ restore_term(void) {
 
 static void
 setup_term(void) {
+  if (!isatty(0) || !isatty(1)) {
+    fprintf(stderr, "%s: stdin and stdout must be connected to a terminal\n",
+            progname);
+    exit(1);
+  }
+
   struct termios t;
   int get_rv = tcgetattr(0, &t);
   DIE_IF_MINUS_ONE(get_rv, "cannot get terminal attributes for standard input");
@@ -235,6 +241,7 @@ dup2_or_die(int fd, int fd2) {
 int
 main(int argc, char *argv[]) {
   progname = argv[0];
+
   bool do_shell = false;
   if (argc == 2 && strcmp(argv[1], "--shell") == 0) {
     do_shell = true;
