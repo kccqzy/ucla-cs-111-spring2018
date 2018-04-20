@@ -1,6 +1,7 @@
 extern crate nix;
 extern crate termios;
 
+use std::ascii::escape_default;
 use std::collections::VecDeque;
 use std::net::{TcpListener, TcpStream};
 use std::env;
@@ -166,10 +167,16 @@ fn server_event_loop(mut socketstream: TcpStream) {
         let mut buf = [0; 65536];
         let bytes_read = from.read(&mut buf).unwrap();
         eprintln!(
-            "read {:?} bytes from fd {:?}: {:?}",
+            "read {:?} bytes from fd {:?}: {}",
             bytes_read,
             from.as_raw_fd(),
-            &buf[0..bytes_read]
+            String::from_utf8(
+                buf[0..bytes_read]
+                    .iter()
+                    .cloned()
+                    .flat_map(escape_default)
+                    .collect()
+            ).unwrap()
         );
         if bytes_read == 0 {
             false
@@ -187,10 +194,16 @@ fn server_event_loop(mut socketstream: TcpStream) {
         match to.write(from.get_some()) {
             Ok(bytes_written) => {
                 eprintln!(
-                    "written {:?} bytes to fd {:?}: {:?}",
+                    "written {:?} bytes to fd {:?}: {}",
                     bytes_written,
                     to.as_raw_fd(),
-                    &from.get_some()[0..bytes_written]
+                    String::from_utf8(
+                        from.get_some()[0..bytes_written]
+                            .iter()
+                            .cloned()
+                            .flat_map(escape_default)
+                            .collect()
+                    ).unwrap()
                 );
                 from.consume(bytes_written);
                 true
@@ -211,40 +224,80 @@ fn server_event_loop(mut socketstream: TcpStream) {
     eprintln!("Assigning poll_fds[0] to child_stdout");
     eprintln!("Assigning poll_fds[1] to child_stderr");
     loop {
-        poll_fds[2] = if child.stdin.is_some() {
+        poll_fds[2] = if child.stdin.is_some() && child_stdin_buf.has_content() {
             eprintln!("Assigning poll_fds[2] to child_stdin_fd");
-            PollFd::new(
-                child_stdin_fd,
-                if child_stdin_buf.has_content() {
-                    EventFlags::POLLOUT
-                } else {
-                    EventFlags::POLLIN // UGLY hack???
-                },
-            )
+            PollFd::new(child_stdin_fd, EventFlags::POLLOUT)
         } else {
             eprintln!("Assigning poll_fds[2] to -1");
             PollFd::new(-1, EventFlags::empty())
         };
 
         poll_fds[3] = if !client_dead && socket_buf.has_content() {
-            eprintln!("Assigning poll_fds[3] to socketstream");
+            eprintln!("Assigning poll_fds[3] to socketstream with POLLIN | POLLOUT");
             PollFd::new(
                 socketstream.as_raw_fd(),
                 EventFlags::POLLIN.bitor(EventFlags::POLLOUT),
             )
         } else {
-            eprintln!("Assigning poll_fds[3] to -1");
+            eprintln!("Assigning poll_fds[3] to socketstream with POLLIN");
             PollFd::new(socketstream.as_raw_fd(), EventFlags::POLLIN)
         };
 
         eprintln!(
-            "Beginning of server event loop with client_dead = {:?}",
+            "\n\nBeginning of server event loop with client_dead = {:?}",
             client_dead
         );
         let poll_rv = poll(&mut poll_fds, -1).unwrap();
         eprintln!("poll(2) returned {:?}", poll_rv);
 
-        // Always handle all readers first
+        // Detect pipe closed
+        if child.stdin.is_some() {
+            eprintln!("child.stdin {:?}", child.stdin);
+            // Special handling to detect the pipes are closed or not.
+            let mut p = [PollFd::new(child_stdin_fd, EventFlags::POLLOUT)];
+            poll(&mut p, 0).unwrap();
+            eprintln!("child stdin pipe revents {:?}", p[0].revents());
+            if p[0].revents().unwrap().contains(EventFlags::POLLERR) {
+                eprintln!("Closing stdin because it cannot be written any more");
+                child.stdin = None;
+            }
+        }
+
+        // Handle writers first: this is because we use the same condition that
+        // we used to specify the poll fd to test. If we handled readers first,
+        // we would need to keep track of the original state before readers
+        // pushed data into our buffers.
+
+        if child.stdin.is_some() && child_stdin_buf.has_content() {
+            eprintln!("child.stdin is Some and has content");
+            eprintln!("child.stdin revents {:?}", poll_fds[2].revents());
+            if can_output(&poll_fds[2]) {
+                if do_write(&mut child_stdin_buf, child.stdin.as_mut().unwrap()) == false {
+                    eprintln!("Closing child stdin");
+                    child.stdin = None;
+                }
+                continue;
+            } else {
+                eprintln!("Child not yet ready to accept input, skipping")
+            }
+        }
+
+        if !client_dead && socket_buf.has_content() {
+            eprintln!("Client not dead yet and has content");
+            if can_output(&poll_fds[3]) {
+                if do_write(&mut socket_buf, &mut socketstream) == false {
+                    // No more write to the socket; so the client does not want to receive any data
+                    // We also assume it does not want to send anything
+                    client_dead = true;
+                    child.stdin = None;
+                }
+                continue;
+            } else {
+                eprintln!("Socket not ready to accept input, skipping")
+            }
+        }
+
+        // Done with writers, handle readers now
         if child.stdout.is_some() {
             eprintln!("child.stdout is Some");
             eprintln!("child.stdout revents {:?}", poll_fds[0].revents());
@@ -255,7 +308,6 @@ fn server_event_loop(mut socketstream: TcpStream) {
                 child.stdout = None;
                 poll_fds[0] = PollFd::new(-1, EventFlags::empty());
                 eprintln!("Closing child stdout and assigning poll_fds[0] to -1");
-                continue;
             }
         } else {
             eprintln!("child.stdout is None");
@@ -271,7 +323,6 @@ fn server_event_loop(mut socketstream: TcpStream) {
                 child.stderr = None;
                 poll_fds[1] = PollFd::new(-1, EventFlags::empty());
                 eprintln!("Closing child stderr assigning poll_fds[1] to -1");
-                continue;
             }
         }
 
@@ -285,51 +336,11 @@ fn server_event_loop(mut socketstream: TcpStream) {
                     child.stdin = None;
                     eprintln!("Setting client_dead = true and closing child.stdin");
                 }
-                continue;
-            }
-        }
-
-        eprintln!("Finished with readers, now writers");
-
-        // Now handle writers
-        if child.stdin.is_some() {
-            eprintln!("child.stdin is Some");
-            eprintln!("child.stdin revents {:?}", poll_fds[2].revents());
-            if child_stdin_buf.has_content() {
-                if can_output(&poll_fds[2]) {
-                    if do_write(&mut child_stdin_buf, child.stdin.as_mut().unwrap()) == false {
-                        eprintln!("Closing child stdin");
-                        child.stdin = None;
-                    }
-                    continue;
-                } else {
-                    eprintln!("Child not yet ready to accept input, skipping")
-                }
-            }
-        } else {
-            eprintln!("child.stdin is None")
-        }
-
-        if !client_dead {
-            eprintln!("Client not dead yet");
-            if socket_buf.has_content() {
-                if can_output(&poll_fds[3]) {
-                    if do_write(&mut socket_buf, &mut socketstream) == false {
-                        // No more write to the socket; so the client does not want to receive any data
-                        // We also assume it does not want to send anything
-                        client_dead = true;
-                        child.stdin = None;
-                    }
-                    continue;
-                } else {
-                    eprintln!("Socket not ready to accept input, skipping")
-                }
             }
         }
 
         // Shutdown handling: quit if the shell has died
-        if child.stdout.is_none() && child.stderr.is_none() {
-            child.stdin = None;
+        if child.stdout.is_none() && child.stderr.is_none() && child.stdin.is_none() {
             break;
         }
 
