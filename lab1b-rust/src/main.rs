@@ -93,6 +93,9 @@ impl WriterBuffer {
         let mut b = buf.into_iter().cloned().collect(); // TODO move
         self.buf.append(&mut b)
     }
+    fn get_next(&self) -> Option<u8> {
+        self.buf.front().map(|c| *c)
+    }
     fn get_some(&self) -> &[u8] {
         self.buf.as_slices().0
     }
@@ -274,6 +277,18 @@ fn server_event_loop(mut socketstream: TcpStream) {
         if child.stdin.is_some() && child_stdin_buf.has_content() {
             eprintln!("child.stdin is Some and has content");
             eprintln!("child.stdin revents {:?}", poll_fds[2].revents());
+            match child_stdin_buf.get_next() {
+                Some(3) => {
+                    kill(pid, Some(Signal::SIGINT)).unwrap();
+                    child_stdin_buf.consume(1)
+                }
+                Some(4) => {
+                    child.stdin = None;
+                    child_stdin_buf.consume(1);
+                    continue;
+                }
+                _ => (),
+            }
             if can_output(&poll_fds[2]) {
                 if do_write(&mut child_stdin_buf, child.stdin.as_mut().unwrap()) == false {
                     eprintln!("Closing child stdin");
