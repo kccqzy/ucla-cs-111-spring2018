@@ -257,7 +257,10 @@ fn server_event_loop(mut socketstream: TcpStream) {
             let mut p = [PollFd::new(child_stdin_fd, EventFlags::POLLOUT)];
             poll(&mut p, 0).unwrap();
             eprintln!("child stdin pipe revents {:?}", p[0].revents());
-            if p[0].revents().unwrap().contains(EventFlags::POLLERR) {
+            if p[0].revents()
+                .unwrap()
+                .intersects(EventFlags::POLLERR.bitor(EventFlags::POLLNVAL))
+            {
                 eprintln!("Closing stdin because it cannot be written any more");
                 child.stdin = None;
             }
