@@ -317,7 +317,7 @@ fn server_event_loop(mut socketstream: TcpStream) {
             client_dead
         );
         let poll_rv = poll(&mut poll_fds, -1).unwrap();
-        eprintln!("poll(2) returned {:?}", poll_rv);
+        eprintln!("poll(2) returned {:?}: {:#?}", poll_rv, poll_fds);
 
         // Detect pipe closed
         if child.stdin.is_some() {
@@ -490,7 +490,7 @@ fn client_event_loop(mut socketstream: TcpStream, stdin: &mut File, stdout: &mut
 
         eprintln!("\n\nBeginning of server event loop",);
         let poll_rv = poll(&mut poll_fds, -1).unwrap();
-        eprintln!("poll(2) returned {:?}", poll_rv);
+        eprintln!("poll(2) returned {:?}: {:#?}", poll_rv, poll_fds);
 
         // Similarly handle writers first
         if stdout_buf.has_content() {
