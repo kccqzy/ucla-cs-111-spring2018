@@ -439,8 +439,8 @@ fn server_event_loop(mut socketstream: TcpStream) {
             break;
         }
 
-        // Shutdown handling: quit if the client has died
-        // TODO
+        // (non-) Shutdown handling: do not just quit merely because the client
+        // has died because we still need to wait for the shell to die.
     }
 
     let status = child.wait().unwrap();
@@ -499,7 +499,9 @@ fn client_event_loop(mut socketstream: TcpStream, stdin: &mut File, stdout: &mut
                 eprintln!("stdout can output");
                 if do_write(&mut stdout_buf, stdout) == false {
                     break;
-                // Client need not handle the death of the terminal
+                // Client need not handle the death of the terminal TODO perhaps
+                    // instead of exiting, should finish reading everything from
+                    // server until EOF.
                 } else {
                     continue;
                 }
@@ -530,7 +532,8 @@ fn client_event_loop(mut socketstream: TcpStream, stdin: &mut File, stdout: &mut
                 LineEndingTranslation::CRtoCRLF,
             ) == false || has_hup(&poll_fds[0])
         {
-            // Could not read from keyboard; user is probably not interested anymore.
+            // Could not read from keyboard. TODO instead of exiting, should
+            // finish reading everything from server until EOF.
             break;
         }
 
@@ -541,7 +544,10 @@ fn client_event_loop(mut socketstream: TcpStream, stdin: &mut File, stdout: &mut
                 LineEndingTranslation::Identity,
             ) == false || has_hup(&poll_fds[2])
         {
-            // Could not read from socket; it is plausible that the server has closed the writing half, but this is useless. For simplicity, we just bail out.
+            // Could not read from socket; it is plausible that the server has
+            // closed the writing half, but this is useless. For simplicity, we
+            // just bail out. TODO we should continue trying to write to the
+            // server.
             break;
         }
     }
