@@ -75,10 +75,6 @@ fn parse_args() -> Args {
     default_args
 }
 
-fn client_event_loop(socketstream: TcpStream, stdin: File, stdout: File) {
-    unimplemented!()
-}
-
 pub struct WriterBuffer {
     buf: VecDeque<u8>,
 }
@@ -106,6 +102,83 @@ impl WriterBuffer {
     fn has_content(&self) -> bool {
         !self.buf.is_empty()
     }
+}
+
+// Returns whether we can attempt another read; false means EOF
+fn do_read<T>(from: &mut T, to: &mut WriterBuffer) -> bool
+where
+    T: Read + AsRawFd,
+{
+    eprintln!("will read from fd {:?}", from.as_raw_fd());
+    let mut buf = [0; 65536];
+    let bytes_read = from.read(&mut buf).unwrap();
+    eprintln!(
+        "read {:?} bytes from fd {:?}: {}",
+        bytes_read,
+        from.as_raw_fd(),
+        String::from_utf8(
+            buf[0..bytes_read]
+                .iter()
+                .cloned()
+                .flat_map(escape_default)
+                .collect()
+        ).unwrap()
+    );
+    if bytes_read == 0 {
+        false
+    } else {
+        to.push_into(&buf[0..bytes_read]);
+        true
+    }
+}
+
+fn do_write<T>(from: &mut WriterBuffer, to: &mut T) -> bool
+where
+    T: Write + AsRawFd,
+{
+    eprintln!("will write to fd {:?}", to.as_raw_fd());
+    match to.write(from.get_some()) {
+        Ok(bytes_written) => {
+            eprintln!(
+                "written {:?} bytes to fd {:?}: {}",
+                bytes_written,
+                to.as_raw_fd(),
+                String::from_utf8(
+                    from.get_some()[0..bytes_written]
+                        .iter()
+                        .cloned()
+                        .flat_map(escape_default)
+                        .collect()
+                ).unwrap()
+            );
+            from.consume(bytes_written);
+            true
+        }
+        Err(e) => {
+            if let std::io::ErrorKind::BrokenPipe = e.kind() {
+                eprintln!("could not written to fd {:?}: EPIPE", to.as_raw_fd());
+                false
+            } else {
+                panic!("unexpected error {:?}", e)
+            }
+        }
+    }
+}
+
+fn has_input(pfd: &PollFd) -> bool {
+    pfd.revents()
+        .map_or(false, |e| e.contains(EventFlags::POLLIN))
+}
+
+fn can_output(pfd: &PollFd) -> bool {
+    pfd.revents()
+        .map_or(false, |e| e.contains(EventFlags::POLLOUT))
+}
+
+fn has_hup(pfd: &PollFd) -> bool {
+    pfd.revents().map_or(false, |e| {
+        e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
+    })
 }
 
 fn server_event_loop(mut socketstream: TcpStream) {
@@ -144,83 +217,8 @@ fn server_event_loop(mut socketstream: TcpStream) {
         ),
     ];
 
-    fn has_input(pfd: &PollFd) -> bool {
-        pfd.revents()
-            .map_or(false, |e| e.contains(EventFlags::POLLIN))
-    }
-    fn can_output(pfd: &PollFd) -> bool {
-        pfd.revents()
-            .map_or(false, |e| e.contains(EventFlags::POLLOUT))
-    }
-    fn has_hup(pfd: &PollFd) -> bool {
-        pfd.revents().map_or(false, |e| {
-            e.intersects(EventFlags::POLLHUP.bitor(EventFlags::POLLERR))
-        })
-    }
-
     let mut child_stdin_buf = WriterBuffer::new();
     let mut socket_buf = WriterBuffer::new();
-
-    // Returns whether we can attempt another read; false means EOF
-    fn do_read<T>(from: &mut T, to: &mut WriterBuffer) -> bool
-    where
-        T: Read + AsRawFd,
-    {
-        eprintln!("will read from fd {:?}", from.as_raw_fd());
-        let mut buf = [0; 65536];
-        let bytes_read = from.read(&mut buf).unwrap();
-        eprintln!(
-            "read {:?} bytes from fd {:?}: {}",
-            bytes_read,
-            from.as_raw_fd(),
-            String::from_utf8(
-                buf[0..bytes_read]
-                    .iter()
-                    .cloned()
-                    .flat_map(escape_default)
-                    .collect()
-            ).unwrap()
-        );
-        if bytes_read == 0 {
-            false
-        } else {
-            to.push_into(&buf[0..bytes_read]);
-            true
-        }
-    }
-
-    fn do_write<T>(from: &mut WriterBuffer, to: &mut T) -> bool
-    where
-        T: Write + AsRawFd,
-    {
-        eprintln!("will write to fd {:?}", to.as_raw_fd());
-        match to.write(from.get_some()) {
-            Ok(bytes_written) => {
-                eprintln!(
-                    "written {:?} bytes to fd {:?}: {}",
-                    bytes_written,
-                    to.as_raw_fd(),
-                    String::from_utf8(
-                        from.get_some()[0..bytes_written]
-                            .iter()
-                            .cloned()
-                            .flat_map(escape_default)
-                            .collect()
-                    ).unwrap()
-                );
-                from.consume(bytes_written);
-                true
-            }
-            Err(e) => {
-                if let std::io::ErrorKind::BrokenPipe = e.kind() {
-                    eprintln!("could not written to fd {:?}: EPIPE", to.as_raw_fd());
-                    false
-                } else {
-                    panic!("unexpected error {:?}", e)
-                }
-            }
-        }
-    }
 
     let mut client_dead = false;
 
@@ -372,6 +370,86 @@ fn server_event_loop(mut socketstream: TcpStream) {
         status.signal().unwrap_or(0),
         status.code().unwrap_or(0)
     )
+}
+
+fn client_event_loop(mut socketstream: TcpStream, mut stdin: File, mut stdout: File) {
+    {
+        let logger = File::create("/tmp/lab1b-client.log").unwrap();
+        dup2(logger.as_raw_fd(), 2).unwrap();
+        // Let logger go out of scope and be dropped
+    }
+
+    let mut poll_fds = [
+        PollFd::new(0, EventFlags::POLLIN),
+        PollFd::new(1, EventFlags::POLLOUT),
+        PollFd::new(
+            socketstream.as_raw_fd(),
+            EventFlags::POLLIN.bitor(EventFlags::POLLOUT),
+        ),
+    ];
+
+    let mut stdout_buf = WriterBuffer::new();
+    let mut socket_buf = WriterBuffer::new();
+
+    loop {
+        poll_fds[1] = if stdout_buf.has_content() {
+            PollFd::new(1, EventFlags::POLLOUT)
+        } else {
+            PollFd::new(-1, EventFlags::empty())
+        };
+
+        poll_fds[2] = if socket_buf.has_content() {
+            eprintln!("Assigning poll_fds[3] to socketstream with POLLIN | POLLOUT");
+            PollFd::new(
+                socketstream.as_raw_fd(),
+                EventFlags::POLLIN.bitor(EventFlags::POLLOUT),
+            )
+        } else {
+            eprintln!("Assigning poll_fds[3] to socketstream with POLLIN");
+            PollFd::new(socketstream.as_raw_fd(), EventFlags::POLLIN)
+        };
+
+        eprintln!("\n\nBeginning of server event loop",);
+
+        // Similarly handle writers first
+        if stdout_buf.has_content() {
+            if can_output(&poll_fds[1]) {
+                if do_write(&mut stdout_buf, &mut stdout) == false {
+                    break;
+                // Client need not handle the death of the terminal
+                } else {
+                    continue;
+                }
+            }
+        }
+
+        if socket_buf.has_content() {
+            if can_output(&poll_fds[2]) {
+                if do_write(&mut socket_buf, &mut socketstream) == false {
+                    // No more write to the socket, but the server couldn't have
+                    // just shutdown the read half, so the server must be dead.
+                    break;
+                } else {
+                    continue;
+                }
+            }
+        }
+
+        // Readers
+        if has_input(&poll_fds[0]) && do_read(&mut stdin, &mut socket_buf) == false
+            || has_hup(&poll_fds[0])
+        {
+            // Could not read from keyboard; user is probably not interested anymore.
+            break;
+        }
+
+        if has_input(&poll_fds[2]) && do_read(&mut socketstream, &mut stdout_buf) == false
+            || has_hup(&poll_fds[2])
+        {
+            // Could not read from socket; it is plausible that the server has closed the writing half, but this is useless. For simplicity, we just bail out.
+            break;
+        }
+    }
 }
 
 fn main() {
