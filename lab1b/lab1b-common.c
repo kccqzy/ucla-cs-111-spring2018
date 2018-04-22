@@ -580,7 +580,6 @@ server_event_loop(int socket_fd) {
 static void
 client_event_loop(int socket_fd) {
   make_non_blocking(0);
-  make_non_blocking(1);
   make_non_blocking(socket_fd);
 
   struct Vector socket_buf = vector_new();
