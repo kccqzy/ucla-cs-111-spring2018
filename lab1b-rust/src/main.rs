@@ -120,9 +120,8 @@ impl WriterBuffer {
             buf: Vec::with_capacity(65536),
         }
     }
-    fn push_into(&mut self, buf: Vec<u8>, trans: LineEndingTranslation) {
-        let mut b = do_translate(buf, trans);
-        self.buf.append(&mut b)
+    fn push_into(&mut self, mut buf: Vec<u8>) {
+        self.buf.append(&mut buf)
     }
     fn get_next(&self) -> Option<u8> {
         if self.buf.is_empty() {
@@ -175,7 +174,7 @@ fn read_alot(from: RawFd) -> (Vec<u8>, bool) {
 // Returns whether we can attempt another read; false means EOF
 fn do_read(from: RawFd, to: &mut WriterBuffer, trans: LineEndingTranslation) -> bool {
     let (buf, rv) = read_alot(from);
-    to.push_into(buf, trans);
+    to.push_into(do_translate(buf, trans));
     rv
 }
 
@@ -413,7 +412,7 @@ fn client_event_loop(sock_fd: RawFd) {
             let buf_ori_2 = buf_ori.clone();
             let buf_stdout = do_translate(buf_ori, LineEndingTranslation::CRtoCRLF);
             write_all(1, &buf_stdout).unwrap();
-            socket_buf.push_into(buf_ori_2, LineEndingTranslation::CRtoLF);
+            socket_buf.push_into(do_translate(buf_ori_2, LineEndingTranslation::CRtoLF));
             if rv == false {
                 panic!("unexpected inability to write to stdout");
             }
