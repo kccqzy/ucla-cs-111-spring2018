@@ -278,24 +278,6 @@ do_write(struct Vector* from, int to) {
   }
 }
 
-static void
-vector_print(struct Vector const* this) {
-  size_t bytes_left = this->len;
-  uint8_t const* buf = this->buf;
-  while (bytes_left > 0) {
-    ssize_t written = write(1, buf, bytes_left);
-    if (written == -1) {
-      if (errno == EINTR) {
-        continue;
-      } else {
-        DIE("could not write to stdout");
-      }
-    }
-    buf += (size_t) written;
-    bytes_left -= (size_t) written;
-  }
-}
-
 /*************************************************************************
  * Utility functions
  *************************************************************************/
@@ -602,15 +584,18 @@ server_event_loop(int socket_fd) {
 static void
 client_event_loop(int socket_fd) {
   make_non_blocking(0);
+  make_non_blocking(1);
   make_non_blocking(socket_fd);
 
   struct Vector socket_buf = vector_new();
+  struct Vector stdout_buf = vector_new();
 
   while (1) {
     struct pollfd poll_fds[] = {
       {.fd = 0, .events = POLLIN},
       {.fd = socket_fd,
-       .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN}};
+       .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
+      {.fd = 1, .events = vector_has_content(&stdout_buf) ? POLLOUT : 0}};
 
     int poll_rv = poll(poll_fds, sizeof poll_fds / sizeof(struct pollfd), -1);
     DIE_IF_MINUS_ONE(poll_rv, "could not poll");
@@ -621,7 +606,13 @@ client_event_loop(int socket_fd) {
         // just shutdown the read half, so the server must be dead.
         break;
       }
-      /* TODO investigate whether we need to continue in else branch */
+    }
+
+    if (vector_has_content(&stdout_buf)) {
+      if (do_write(&stdout_buf, 1) == false) {
+        // No more write to stdout
+        break;
+      }
     }
 
     if (has_input(&poll_fds[0])) {
@@ -630,8 +621,8 @@ client_event_loop(int socket_fd) {
       struct Vector buf_ori_2 = vector_new();
       vector_push_into(&buf_ori_2, buf_ori.buf, buf_ori.len);
       translate_vector(&buf_ori, CR_TO_CRLF);
-      vector_print(&buf_ori);
       translate_vector(&buf_ori_2, CR_TO_LF);
+      vector_push_into(&stdout_buf, buf_ori.buf, buf_ori.len);
       vector_push_into(&socket_buf, buf_ori_2.buf, buf_ori_2.len);
       vector_delete(&buf_ori); /* TODO optimize copying */
       vector_delete(&buf_ori_2);
@@ -645,17 +636,14 @@ client_event_loop(int socket_fd) {
     }
 
     if (has_input(&poll_fds[1])) {
-      bool more;
-      struct Vector buf = read_alot(socket_fd, &more);
-      vector_print(&buf);
-      vector_delete(&buf);
-      if (more == false) { break; }
+      if (do_read(socket_fd, &stdout_buf, IDENTITY) == false) { break; }
     } else if (has_hup(&poll_fds[1])) {
       break;
     }
   }
 
   vector_delete(&socket_buf);
+  vector_delete(&stdout_buf);
 }
 
 int
