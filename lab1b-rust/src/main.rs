@@ -11,11 +11,10 @@ use std::os::unix::process::ExitStatusExt;
 use nix::sys::signal::Signal;
 use std::ops::BitOr;
 use std::process::{Command, Stdio};
-use std::fs::File;
 use std::os::unix::prelude::*;
 use std::process::exit;
 use nix::poll::{poll, EventFlags, PollFd};
-use nix::unistd::{close, read, write, Pid, dup2};
+use nix::unistd::{close, read, write, Pid};
 use nix::sys::signal::kill;
 use termios::*;
 
@@ -156,7 +155,6 @@ fn make_non_blocking(fd: RawFd) {
 }
 
 fn read_alot(from: RawFd) -> (Vec<u8>, bool) {
-    eprintln!("will read from fd {:?}", from);
     let mut buf = Vec::with_capacity(65536);
     loop {
         let mut b = [0; 65536];
@@ -182,7 +180,6 @@ fn do_read(from: RawFd, to: &mut WriterBuffer, trans: LineEndingTranslation) -> 
 }
 
 fn do_write(from: &mut WriterBuffer, to: RawFd) -> bool {
-    eprintln!("will write to fd {:?}", to);
     loop {
         if from.get_some().is_empty() {
             return true;
@@ -221,12 +218,6 @@ fn has_hup(pfd: &PollFd) -> bool {
 }
 
 fn server_event_loop(mut sock_fd: RawFd) {
-    {
-        let logger = File::create("/tmp/lab1b-server.log").unwrap();
-        dup2(logger.as_raw_fd(), 2).unwrap();
-        // Let logger go out of scope and be dropped
-    }
-
     let mut child = Command::new("/bin/bash")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -271,8 +262,7 @@ fn server_event_loop(mut sock_fd: RawFd) {
             ),
         ];
 
-        let poll_rv = poll(&mut poll_fds, -1).unwrap();
-        eprintln!("poll(2) returned {:?}: {:#?}", poll_rv, poll_fds);
+        poll(&mut poll_fds, -1).unwrap();
 
         // Handle writers first: previously this is because we use the same
         // condition that we used to specify the poll fd to test. Now we really
@@ -387,12 +377,6 @@ fn server_event_loop(mut sock_fd: RawFd) {
 }
 
 fn client_event_loop(sock_fd: RawFd) {
-    {
-        let logger = File::create("/tmp/lab1b-client.log").unwrap();
-        dup2(logger.as_raw_fd(), 2).unwrap();
-        // Let logger go out of scope and be dropped
-    }
-
     make_non_blocking(0);
     make_non_blocking(sock_fd);
     // Special: stdout is blocking
@@ -411,12 +395,9 @@ fn client_event_loop(sock_fd: RawFd) {
                 },
             ),
         ];
-        let poll_rv = poll(&mut poll_fds, 50).unwrap();
-        eprintln!("poll(2) returned {:?}: {:#?}", poll_rv, poll_fds);
+        poll(&mut poll_fds, 50).unwrap();
 
         if socket_buf.has_content() {
-            eprintln!("socket_buf has content");
-            eprintln!("socket can output");
             if do_write(&mut socket_buf, sock_fd) == false {
                 // No more write to the socket, but the server couldn't have
                 // just shutdown the read half, so the server must be dead.
