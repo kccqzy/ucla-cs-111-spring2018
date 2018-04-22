@@ -431,15 +431,13 @@ try_listen_and_accept(void) {
 }
 
 static void
-start_child(int* child_stdin_fd, int* child_stdout_fd, int* child_stderr_fd,
-            pid_t* child_pid, int socket_fd) {
-  int in[2], out[2], err[2];
+start_child(int* child_stdin_fd, int* child_stdout_fd, pid_t* child_pid,
+            int socket_fd) {
+  int in[2], out[2];
   int inr = pipe(in);
   int outr = pipe(out);
-  int errr = pipe(err);
   DIE_IF_MINUS_ONE(inr, "could not create pipe for stdin");
   DIE_IF_MINUS_ONE(outr, "could not create pipe for stdout");
-  DIE_IF_MINUS_ONE(errr, "could not create pipe for stderr");
   pid_t pid = fork();
   DIE_IF_MINUS_ONE(pid, "could not fork");
   if (pid == 0) {
@@ -447,10 +445,9 @@ start_child(int* child_stdin_fd, int* child_stdout_fd, int* child_stderr_fd,
     char* const args[] = {bash, NULL};
     dup2(in[0], 0);
     dup2(out[1], 1);
-    dup2(err[1], 2);
+    dup2(out[1], 2);
     close(in[1]);
     close(out[0]);
-    close(err[0]);
     close(socket_fd);
     execvp(bash, args);
     fprintf(stderr, "%s: could not execute bash: %s\n", progname,
@@ -459,10 +456,8 @@ start_child(int* child_stdin_fd, int* child_stdout_fd, int* child_stderr_fd,
   }
   close(in[0]);
   close(out[1]);
-  close(err[1]);
   *child_stdin_fd = in[1];
   *child_stdout_fd = out[0];
-  *child_stderr_fd = err[0];
   *child_pid = pid;
 }
 
@@ -475,14 +470,12 @@ make_non_blocking(int fd) {
 
 static void
 server_event_loop(int socket_fd) {
-  int child_stdin_fd, child_stdout_fd, child_stderr_fd;
+  int child_stdin_fd, child_stdout_fd;
   pid_t child_pid;
-  start_child(&child_stdin_fd, &child_stdout_fd, &child_stderr_fd, &child_pid,
-              socket_fd);
+  start_child(&child_stdin_fd, &child_stdout_fd, &child_pid, socket_fd);
 
   make_non_blocking(child_stdin_fd);
   make_non_blocking(child_stdout_fd);
-  make_non_blocking(child_stderr_fd);
   make_non_blocking(socket_fd);
 
   struct Vector child_stdin_buf = vector_new();
@@ -492,7 +485,6 @@ server_event_loop(int socket_fd) {
     struct pollfd poll_fds[] = {
       /* CSE please! */
       {.fd = child_stdout_fd, .events = POLLIN},
-      {.fd = child_stderr_fd, .events = POLLIN},
       {.fd = socket_fd,
        .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
       {.fd = child_stdin_fd,
@@ -553,18 +545,10 @@ server_event_loop(int socket_fd) {
       }
     }
 
-    if (child_stderr_fd > -1) {
-      if ((has_input(&poll_fds[1]) &&
-           do_read(child_stderr_fd, &socket_buf, LF_TO_CRLF, false) == false) ||
-          has_hup(&poll_fds[1])) {
-        close(child_stderr_fd);
-        child_stderr_fd = -1;
-      }
-    }
-
     if (socket_fd > -1) {
-      if (has_input(&poll_fds[2]) &&
-          do_read(socket_fd, &child_stdin_buf, IDENTITY, true) == false) {
+      if ((has_input(&poll_fds[1]) &&
+           do_read(socket_fd, &child_stdin_buf, IDENTITY, true) == false) ||
+          has_hup(&poll_fds[1])) {
         /* No more read; so the client will not send any more data to us */
         if (child_stdin_fd > -1) {
           close(child_stdin_fd);
@@ -576,10 +560,7 @@ server_event_loop(int socket_fd) {
     }
 
     // Shutdown handling: quit if the shell has died
-    if (child_stdout_fd == -1 && child_stdin_fd == -1 &&
-        child_stderr_fd == -1) {
-      break;
-    }
+    if (child_stdout_fd == -1 && child_stdin_fd == -1) { break; }
 
     // (non-) Shutdown handling: do not just quit merely because the client
     // has died because we still need to wait for the shell to die.
