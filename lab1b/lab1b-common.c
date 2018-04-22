@@ -144,6 +144,11 @@ vector_has_content(struct Vector const* this) {
 static inline void
 vector_reserve(struct Vector* this, size_t target_size) {
   if (this->cap < target_size) {
+    /* For efficiency reasons, if the requested target size is smaller than
+       2*cap, we make it 2*cap. */
+    if (target_size < this->cap * 2) {
+      target_size = this->cap * 2;
+    }
     /* Round up to the next multiple of 4096; add 4096 if already a multiple */
     size_t new_cap = ((target_size >> 12) + 1) << 12;
     this->buf = realloc(this->buf, new_cap);
