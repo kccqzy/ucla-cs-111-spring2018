@@ -236,7 +236,7 @@ static inline void
 log_data(uint8_t const* buf, size_t size, char const* prefix) {
   if (opt_log) {
     fprintf(opt_log, "%s %zu bytes: ", prefix, size);
-    fwrite(buf, size, 1, opt_log);
+    fwrite(buf, 1, size, opt_log);
     fputc('\n', opt_log);
   }
 }
