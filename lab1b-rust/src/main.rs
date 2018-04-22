@@ -414,10 +414,10 @@ fn client_event_loop(sock_fd: RawFd) {
             write_all(1, &buf_stdout).unwrap();
             socket_buf.push_into(do_translate(buf_ori_2, LineEndingTranslation::CRtoLF));
             if rv == false {
-                panic!("unexpected inability to write to stdout");
+                panic!("unexpected inability to read from keyboard");
             }
         } else if has_hup(&poll_fds[0]) {
-            panic!("unexpected inability to write to stdout");
+            panic!("unexpected inability to read from keyboard");
         }
 
         if has_input(&poll_fds[1]) {
@@ -426,7 +426,7 @@ fn client_event_loop(sock_fd: RawFd) {
             if rv == false {
                 break;
             }
-        } else if has_hup(&poll_fds[0]) {
+        } else if has_hup(&poll_fds[1]) {
             break;
         }
     }

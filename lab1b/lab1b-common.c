@@ -1,6 +1,8 @@
+#include "lab1b-common.h"
 #include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -14,9 +16,11 @@
 #include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
-#include "lab1b-common.h"
 
-/* Options */
+/*************************************************************************
+ * Global variables and constants
+ *************************************************************************/
+
 static const struct option prog_options[] = {
   {.name = "port", .has_arg = required_argument, .val = 'p'},
   {.name = "host", .has_arg = required_argument, .val = 'h'},
@@ -32,6 +36,11 @@ static FILE* opt_log = NULL;
 static const char* progname = NULL;
 static struct termios original_termios;
 
+
+/*************************************************************************
+ * Ways to die
+ *************************************************************************/
+
 #define DIE(reason, ...)                                                       \
   do {                                                                         \
     fprintf(stderr, "%s: " reason ": %s\r\n", progname, ##__VA_ARGS__,         \
@@ -43,6 +52,11 @@ static struct termios original_termios;
   do {                                                                         \
     if (rv == -1) { DIE(reason, ##__VA_ARGS__); }                              \
   } while (0)
+
+
+/*************************************************************************
+ * Terminal processing
+ *************************************************************************/
 
 static void
 restore_term(void) {
@@ -76,6 +90,83 @@ setup_term(void) {
   atexit(restore_term);
 }
 
+/*************************************************************************
+ * Vector
+ *************************************************************************/
+struct Vector {
+  uint8_t* buf;
+  size_t len, cap;
+};
+
+static inline struct Vector
+vector_new(void) {
+  struct Vector r = {.buf = NULL, .len = 0, .cap = 0};
+  return r;
+}
+
+static inline void
+vector_delete(struct Vector* this) {
+  free(this->buf);
+}
+
+static inline int
+vector_get_next(struct Vector const* this) {
+  assert(this->len <= this->cap);
+  if (!this->len) {
+    return -1;
+  } else {
+    return *this->buf;
+  }
+}
+
+static inline void
+vector_consume(struct Vector* this, size_t size) {
+  assert(this->len <= this->cap);
+  assert(size <= this->len);
+  if (size == this->len) {
+    this->len = 0;
+  } else {
+    memmove(this->buf, this->buf + size, this->len - size);
+    this->len = size;
+  }
+}
+
+static inline bool
+vector_has_content(struct Vector const* this) {
+  return this->len;
+}
+
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+static inline void
+vector_reserve(struct Vector* this, size_t target_size) {
+  if (this->cap < target_size) {
+    /* Round up to the next multiple of 4096; add 4096 if already a multiple */
+    size_t new_cap = ((target_size >> 12) + 1) << 12;
+    this->buf = realloc(this->buf, new_cap);
+    if (!this->buf) { abort(); }
+    this->cap = new_cap;
+  }
+}
+
+static inline void
+vector_push_into(struct Vector* this, uint8_t const* buf, size_t size) {
+  if (!size) { return; }
+  size_t target_size = this->len + size;
+  if (unlikely(target_size < size || target_size < this->len)) {
+    /* overflow */
+    abort();
+  }
+  vector_reserve(this, target_size);
+  memcpy(this->buf + this->len, buf, size);
+  this->len = target_size;
+}
+
+/*************************************************************************
+ * Line translation
+ *************************************************************************/
+
 enum LineEndingTranslation {
   IDENTITY,
   CR_TO_LF,
@@ -84,42 +175,139 @@ enum LineEndingTranslation {
 
 };
 
-static size_t
-translate_buffer(const uint8_t* inbuf, size_t in_size, uint8_t* outbuf,
-                 enum LineEndingTranslation trans) {
-  size_t j = 0;
+static void
+translate_vector(struct Vector* this, enum LineEndingTranslation trans) {
   switch (trans) {
-  case IDENTITY: memcpy(outbuf, inbuf, in_size); return in_size;
+  case IDENTITY: return;
   case CR_TO_LF:
-    for (size_t i = 0; i < in_size; ++i) {
-      if (inbuf[i] == 0x0d) {
-        outbuf[j++] = 0x0a;
+    for (size_t i = 0; i < this->len; ++i) {
+      if (this->buf[i] == 0x0d) { this->buf[i] = 0x0a; }
+    }
+    return;
+  case CR_TO_CRLF: {
+    uint8_t tmp[this->len * 2]; /* VLA */
+    size_t j = 0;
+    for (size_t i = 0; i < this->len; ++i) {
+      if (this->buf[i] == 0x0d) {
+        tmp[j++] = 0x0d;
+        tmp[j++] = 0x0a;
       } else {
-        outbuf[j++] = inbuf[i];
+        tmp[j++] = this->buf[i];
       }
     }
-    return j;
-  case CR_TO_CRLF:
-    for (size_t i = 0; i < in_size; ++i) {
-      if (inbuf[i] == 0x0d) {
-        outbuf[j++] = 0x0d;
-        outbuf[j++] = 0x0a;
-      } else {
-        outbuf[j++] = inbuf[i];
-      }
-    }
-    return j;
-  case LF_TO_CRLF:
-    for (size_t i = 0; i < in_size; ++i) {
-      if (inbuf[i] == 0x0a) {
-        outbuf[j++] = 0x0d;
-        outbuf[j++] = 0x0a;
-      } else {
-        outbuf[j++] = inbuf[i];
-      }
-    }
-    return j;
+    vector_reserve(this, j);
+    memcpy(this->buf, tmp, j);
+    this->len = j;
+    return;
   }
+  case LF_TO_CRLF: {
+    uint8_t tmp[this->len * 2]; /* VLA */
+    size_t j = 0;
+    for (size_t i = 0; i < this->len; ++i) {
+      if (this->buf[i] == 0x0a) {
+        tmp[j++] = 0x0d;
+        tmp[j++] = 0x0a;
+      } else {
+        tmp[j++] = this->buf[i];
+      }
+    }
+    vector_reserve(this, j);
+    memcpy(this->buf, tmp, j);
+    this->len = j;
+    return;
+  }
+  }
+}
+
+
+/*************************************************************************
+ * Buffer management
+ *************************************************************************/
+
+static inline struct Vector
+read_alot(int from, bool* more) {
+  struct Vector buf = vector_new();
+  while (1) {
+    uint8_t b[4096];
+    ssize_t r = read(from, b, 4096);
+    if (r == 0) {
+      *more = false;
+      return buf;
+    } else if (r > 0) {
+      vector_push_into(&buf, b, r);
+      continue;
+    } else {
+      if (errno == EINTR) {
+        continue;
+      } else if (errno == EAGAIN) {
+        *more = true;
+        return buf;
+      } else {
+        DIE("could not read");
+      }
+    }
+  }
+}
+
+static bool
+do_read(int from, struct Vector* to, enum LineEndingTranslation trans) {
+  bool more;
+  struct Vector buf = read_alot(from, &more);
+  translate_vector(&buf, trans);
+  vector_push_into(to, buf.buf, buf.len);
+  vector_delete(&buf);
+  return more;
+}
+
+static bool
+do_write(struct Vector* from, int to) {
+  while (1) {
+    if (!vector_has_content(from)) { return true; }
+    ssize_t w = write(to, from->buf, from->len);
+    if (w > -1) {
+      vector_consume(from, w);
+      continue;
+    } else {
+      if (errno == EAGAIN) {
+        return true;
+      } else if (errno == EPIPE) {
+        return false;
+      }
+      DIE("could not write");
+    }
+  }
+}
+
+static void
+vector_print(struct Vector const* this) {
+  size_t bytes_left = this->len;
+  uint8_t const* buf = this->buf;
+  while (bytes_left > 0) {
+    ssize_t written = write(1, buf, bytes_left);
+    if (written == -1) {
+      if (errno == EINTR) {
+        continue;
+      } else {
+        DIE("could not write to stdout");
+      }
+    }
+    buf += (size_t) written;
+    bytes_left -= (size_t) written;
+  }
+}
+
+/*************************************************************************
+ * Utility functions
+ *************************************************************************/
+
+static inline bool
+has_input(struct pollfd const* pfd) {
+  return pfd->revents & POLLIN;
+}
+
+static inline bool
+has_hup(struct pollfd const* pfd) {
+  return pfd->revents & POLLHUP;
 }
 
 static void
@@ -207,17 +395,267 @@ try_connect(void) {
 
 static int
 try_listen_and_accept(void) {
-  assert(false && "unimplemented");
+  struct addrinfo* result;
+  int r =
+    getaddrinfo(opt_host, opt_port,
+                &(struct addrinfo){.ai_socktype = SOCK_STREAM,
+                                   .ai_family = AF_UNSPEC,
+                                   .ai_flags = AI_PASSIVE | AI_NUMERICSERV},
+                &result);
+  if (r) {
+    fprintf(stderr, "%s: could not resolve %s port %s: %s\n", progname,
+            opt_host, opt_port, gai_strerror(r));
+    exit(1);
+  }
+
+  int lfd = 0;
+  struct addrinfo* p = result;
+  for (; p; p = p->ai_next) {
+    lfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+    if (lfd == -1) { continue; } /* Try next */
+    int ssr = setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+    DIE_IF_MINUS_ONE(ssr, "could not set SO_REUSEADDR");
+    if (bind(lfd, p->ai_addr, p->ai_addrlen) != -1) { break; }
+    close(lfd);
+  }
+  if (!p) { exit(1); }
+  int listenr = listen(lfd, 1);
+  DIE_IF_MINUS_ONE(listenr, "could not listen");
+  freeaddrinfo(result);
+  assert(lfd);
+
+  /* We are now successfully listening. We accept the first client and then stop
+     listening. */
+  while (1) {
+    int cfd = accept(lfd, NULL, NULL);
+    if (cfd == -1) continue;
+    close(lfd);
+    /* Because we only service a single client, close the listening socket. */
+    return cfd;
+  }
+}
+
+static void
+start_child(int* child_stdin_fd, int* child_stdout_fd, int* child_stderr_fd,
+            pid_t* child_pid, int socket_fd) {
+  int in[2], out[2], err[2];
+  int inr = pipe(in);
+  int outr = pipe(out);
+  int errr = pipe(err);
+  DIE_IF_MINUS_ONE(inr, "could not create pipe for stdin");
+  DIE_IF_MINUS_ONE(outr, "could not create pipe for stdout");
+  DIE_IF_MINUS_ONE(errr, "could not create pipe for stderr");
+  pid_t pid = fork();
+  DIE_IF_MINUS_ONE(pid, "could not fork");
+  if (pid == 0) {
+    char bash[] = "/bin/bash";
+    char* const args[] = {bash, NULL};
+    dup2(in[0], 0);
+    dup2(out[1], 1);
+    dup2(err[1], 2);
+    close(in[1]);
+    close(out[0]);
+    close(err[0]);
+    close(socket_fd);
+    execvp(bash, args);
+    fprintf(stderr, "%s: could not execute bash: %s\n", progname,
+            strerror(errno));
+    _exit(1);
+  }
+  close(in[0]);
+  close(out[1]);
+  close(err[1]);
+  *child_stdin_fd = in[1];
+  *child_stdout_fd = out[0];
+  *child_stderr_fd = err[0];
+  *child_pid = pid;
+}
+
+static void
+make_non_blocking(int fd) {
+  int flags = fcntl(fd, F_GETFL);
+  DIE_IF_MINUS_ONE(flags, "could not get fd FL");
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
 static void
 server_event_loop(int socket_fd) {
-  assert(false && "unimplemented");
+  int child_stdin_fd, child_stdout_fd, child_stderr_fd;
+  pid_t child_pid;
+  start_child(&child_stdin_fd, &child_stdout_fd, &child_stderr_fd, &child_pid,
+              socket_fd);
+
+  make_non_blocking(child_stdin_fd);
+  make_non_blocking(child_stdout_fd);
+  make_non_blocking(child_stderr_fd);
+  make_non_blocking(socket_fd);
+
+  struct Vector child_stdin_buf = vector_new();
+  struct Vector socket_buf = vector_new();
+
+  while (1) {
+    struct pollfd poll_fds[] = {
+      /* CSE please! */
+      {.fd = child_stdout_fd, .events = POLLIN},
+      {.fd = child_stderr_fd, .events = POLLIN},
+      {.fd = socket_fd,
+       .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
+      {.fd = child_stdin_fd,
+       .events = vector_has_content(&child_stdin_buf) ? POLLOUT : 0}};
+
+    int poll_rv = poll(poll_fds, sizeof poll_fds / sizeof(struct pollfd), -1);
+    DIE_IF_MINUS_ONE(poll_rv, "could not poll");
+
+    /* Detect pipe closed */
+    if (child_stdin_fd > -1) {
+      struct pollfd p = {.fd = child_stdin_fd, .events = POLLOUT};
+      int poll_rv = poll(&p, 1, 0);
+      DIE_IF_MINUS_ONE(poll_rv, "could not poll");
+      if (p.revents & (POLLERR | POLLNVAL)) {
+        /* POLLNVAL is a special workaround for OSX. */
+        close(child_stdin_fd);
+        child_stdin_fd = -1;
+      }
+    }
+
+    /* Handle child stdin */
+    if (child_stdin_fd > -1 && vector_has_content(&child_stdin_buf)) {
+      if (vector_get_next(&child_stdin_buf) == 3) {
+        DIE_IF_MINUS_ONE(kill(child_pid, SIGINT),
+                         "could not send signal to child");
+        vector_consume(&child_stdin_buf, 1);
+        continue;
+      } else if (vector_get_next(&child_stdin_buf) == 4) {
+        close(child_stdin_fd);
+        child_stdin_fd = -1;
+        continue;
+      }
+      if (do_write(&child_stdin_buf, child_stdin_fd) == false) {
+        close(child_stdin_fd);
+        child_stdin_fd = -1;
+      }
+    }
+
+    /* Handle client */
+    if (socket_fd > -1 && vector_has_content(&socket_buf)) {
+      if (do_write(&socket_buf, socket_fd) == false) {
+        if (child_stdin_fd > -1) {
+          close(child_stdin_fd);
+          child_stdin_fd = -1;
+        }
+        close(socket_fd);
+        socket_fd = -1;
+      }
+    }
+
+    /* Done with writers, now readers */
+    if (child_stdout_fd > -1) {
+      if ((has_input(&poll_fds[0]) &&
+           do_read(child_stdout_fd, &socket_buf, LF_TO_CRLF) == false) ||
+          has_hup(&poll_fds[0])) {
+        close(child_stdout_fd);
+        child_stdout_fd = -1;
+      }
+    }
+
+    if (child_stderr_fd > -1) {
+      if ((has_input(&poll_fds[1]) &&
+           do_read(child_stderr_fd, &socket_buf, LF_TO_CRLF) == false) ||
+          has_hup(&poll_fds[1])) {
+        close(child_stderr_fd);
+        child_stderr_fd = -1;
+      }
+    }
+
+    if (socket_fd > -1) {
+      if (has_input(&poll_fds[2]) &&
+          do_read(socket_fd, &child_stdin_buf, IDENTITY) == false) {
+        /* No more read; so the client will not send any more data to us */
+        if (child_stdin_fd > -1) {
+          close(child_stdin_fd);
+          child_stdin_fd = -1;
+        }
+        close(socket_fd);
+        socket_fd = -1;
+      }
+    }
+
+    // Shutdown handling: quit if the shell has died
+    if (child_stdout_fd == -1 && child_stdin_fd == -1 &&
+        child_stderr_fd == -1) {
+      break;
+    }
+
+    // (non-) Shutdown handling: do not just quit merely because the client
+    // has died because we still need to wait for the shell to die.
+  }
+
+  int stat;
+  waitpid(child_pid, &stat, 0);
+  fprintf(stderr, "SHELL EXIT SIGNAL=%d STATUS=%d\r\n", stat & 0x7f,
+          (stat & 0xff00) >> 8);
+
+  vector_delete(&child_stdin_buf);
+  vector_delete(&socket_buf);
 }
 
 static void
 client_event_loop(int socket_fd) {
-  assert(false && "unimplemented");
+  make_non_blocking(0);
+  make_non_blocking(socket_fd);
+
+  struct Vector socket_buf = vector_new();
+
+  while (1) {
+    struct pollfd poll_fds[] = {
+      {.fd = 0, .events = POLLIN},
+      {.fd = socket_fd,
+       .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN}};
+
+    int poll_rv = poll(poll_fds, sizeof poll_fds / sizeof(struct pollfd), -1);
+    DIE_IF_MINUS_ONE(poll_rv, "could not poll");
+
+    if (vector_has_content(&socket_buf)) {
+      if (do_write(&socket_buf, socket_fd) == false) {
+        // No more write to the socket, but the server couldn't have
+        // just shutdown the read half, so the server must be dead.
+        break;
+      }
+      /* TODO investigate whether we need to continue in else branch */
+    }
+
+    if (has_input(&poll_fds[0])) {
+      bool more;
+      struct Vector buf_ori = read_alot(0, &more);
+      struct Vector buf_ori_2 = vector_new();
+      vector_push_into(&buf_ori_2, buf_ori.buf, buf_ori.len);
+      translate_vector(&buf_ori, CR_TO_CRLF);
+      vector_print(&buf_ori);
+      translate_vector(&buf_ori_2, CR_TO_LF);
+      vector_push_into(&socket_buf, buf_ori_2.buf, buf_ori_2.len);
+      vector_delete(&buf_ori); /* TODO optimize copying */
+      vector_delete(&buf_ori_2);
+      if (more == false) {
+        fprintf(stderr, "unexpected inability to read from keyboard; TODO\n");
+        exit(1);
+      }
+    } else if (has_hup(&poll_fds[0])) {
+      fprintf(stderr, "unexpected inability to read from keyboard; TODO\n");
+      exit(1);
+    }
+
+    if (has_input(&poll_fds[1])) {
+      bool more;
+      struct Vector buf = read_alot(socket_fd, &more);
+      vector_print(&buf);
+      vector_delete(&buf);
+      if (more == false) { break; }
+    } else if (has_hup(&poll_fds[1])) {
+      break;
+    }
+  }
+
+  vector_delete(&socket_buf);
 }
 
 int
@@ -237,7 +675,7 @@ client_main(int argc, char* argv[]) {
 }
 
 int
-server_main(int argc, char*argv[]) {
+server_main(int argc, char* argv[]) {
   progname = argv[0];
 
   parse_args(argc, argv);
