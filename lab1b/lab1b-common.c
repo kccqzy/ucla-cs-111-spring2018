@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "lab1b-common.h"
 #include <arpa/inet.h>
 #include <assert.h>
@@ -14,6 +15,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 
