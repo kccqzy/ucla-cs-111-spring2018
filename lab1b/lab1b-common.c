@@ -139,9 +139,6 @@ vector_has_content(struct Vector const* this) {
   return this->len;
 }
 
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-
 static inline void
 vector_reserve(struct Vector* this, size_t target_size) {
   if (this->cap < target_size) {
@@ -162,10 +159,6 @@ static inline void
 vector_push_into(struct Vector* this, uint8_t const* buf, size_t size) {
   if (!size) { return; }
   size_t target_size = this->len + size;
-  if (unlikely(target_size < size || target_size < this->len)) {
-    /* overflow */
-    abort();
-  }
   vector_reserve(this, target_size);
   memcpy(this->buf + this->len, buf, size);
   this->len = target_size;
