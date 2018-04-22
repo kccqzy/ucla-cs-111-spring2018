@@ -17,6 +17,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "lab1b-rust"
 version = "0.1.0"
 dependencies = [
+ "libc 0.2.40 (registry+https://github.com/rust-lang/crates.io-index)",
  "nix 0.11.0-pre (git+https://github.com/nix-rust/nix.git?rev=c2fb79e2fd6ecc15589f532459db06a506696efa)",
  "termios 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
