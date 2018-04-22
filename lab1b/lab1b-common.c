@@ -129,7 +129,7 @@ vector_consume(struct Vector* this, size_t size) {
     this->len = 0;
   } else {
     memmove(this->buf, this->buf + size, this->len - size);
-    this->len = size;
+    this->len -= size;
   }
 }
 
