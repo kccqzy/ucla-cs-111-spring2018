@@ -224,8 +224,17 @@ translate_vector(struct Vector* this, enum LineEndingTranslation trans) {
  * Buffer management
  *************************************************************************/
 
+static inline void
+log_data(uint8_t const* buf, size_t size, char const* prefix) {
+  if (opt_log) {
+    fprintf(opt_log, "%s %zu bytes: ", prefix, size);
+    fwrite(buf, size, 1, opt_log);
+    fputc('\n', opt_log);
+  }
+}
+
 static inline struct Vector
-read_alot(int from, bool* more) {
+read_alot(int from, bool* more, bool do_log) {
   struct Vector buf = vector_new();
   while (1) {
     uint8_t b[4096];
@@ -235,6 +244,7 @@ read_alot(int from, bool* more) {
       return buf;
     } else if (r > 0) {
       vector_push_into(&buf, b, r);
+      if (do_log) { log_data(b, r, "RECEIVED"); }
       continue;
     } else {
       if (errno == EINTR) {
@@ -250,9 +260,10 @@ read_alot(int from, bool* more) {
 }
 
 static bool
-do_read(int from, struct Vector* to, enum LineEndingTranslation trans) {
+do_read(int from, struct Vector* to, enum LineEndingTranslation trans,
+        bool do_log) {
   bool more;
-  struct Vector buf = read_alot(from, &more);
+  struct Vector buf = read_alot(from, &more, do_log);
   translate_vector(&buf, trans);
   vector_push_into(to, buf.buf, buf.len);
   vector_delete(&buf);
@@ -260,11 +271,12 @@ do_read(int from, struct Vector* to, enum LineEndingTranslation trans) {
 }
 
 static bool
-do_write(struct Vector* from, int to) {
+do_write(struct Vector* from, int to, bool do_log) {
   while (1) {
     if (!vector_has_content(from)) { return true; }
     ssize_t w = write(to, from->buf, from->len);
     if (w > -1) {
+      if (do_log) { log_data(from->buf, w, "SENT"); }
       vector_consume(from, w);
       continue;
     } else {
@@ -306,6 +318,7 @@ parse_args(int argc, char* argv[]) {
                 argv[0], optarg, strerror(errno));
         exit(1);
       }
+      setlinebuf(opt_log);
       break;
     case -1:
       /* Determine whether there are no-option parameters left */
@@ -512,7 +525,7 @@ server_event_loop(int socket_fd) {
         child_stdin_fd = -1;
         continue;
       }
-      if (do_write(&child_stdin_buf, child_stdin_fd) == false) {
+      if (do_write(&child_stdin_buf, child_stdin_fd, false) == false) {
         close(child_stdin_fd);
         child_stdin_fd = -1;
       }
@@ -520,7 +533,7 @@ server_event_loop(int socket_fd) {
 
     /* Handle client */
     if (socket_fd > -1 && vector_has_content(&socket_buf)) {
-      if (do_write(&socket_buf, socket_fd) == false) {
+      if (do_write(&socket_buf, socket_fd, true) == false) {
         if (child_stdin_fd > -1) {
           close(child_stdin_fd);
           child_stdin_fd = -1;
@@ -533,7 +546,7 @@ server_event_loop(int socket_fd) {
     /* Done with writers, now readers */
     if (child_stdout_fd > -1) {
       if ((has_input(&poll_fds[0]) &&
-           do_read(child_stdout_fd, &socket_buf, LF_TO_CRLF) == false) ||
+           do_read(child_stdout_fd, &socket_buf, LF_TO_CRLF, false) == false) ||
           has_hup(&poll_fds[0])) {
         close(child_stdout_fd);
         child_stdout_fd = -1;
@@ -542,7 +555,7 @@ server_event_loop(int socket_fd) {
 
     if (child_stderr_fd > -1) {
       if ((has_input(&poll_fds[1]) &&
-           do_read(child_stderr_fd, &socket_buf, LF_TO_CRLF) == false) ||
+           do_read(child_stderr_fd, &socket_buf, LF_TO_CRLF, false) == false) ||
           has_hup(&poll_fds[1])) {
         close(child_stderr_fd);
         child_stderr_fd = -1;
@@ -551,7 +564,7 @@ server_event_loop(int socket_fd) {
 
     if (socket_fd > -1) {
       if (has_input(&poll_fds[2]) &&
-          do_read(socket_fd, &child_stdin_buf, IDENTITY) == false) {
+          do_read(socket_fd, &child_stdin_buf, IDENTITY, true) == false) {
         /* No more read; so the client will not send any more data to us */
         if (child_stdin_fd > -1) {
           close(child_stdin_fd);
@@ -601,7 +614,7 @@ client_event_loop(int socket_fd) {
     DIE_IF_MINUS_ONE(poll_rv, "could not poll");
 
     if (vector_has_content(&socket_buf)) {
-      if (do_write(&socket_buf, socket_fd) == false) {
+      if (do_write(&socket_buf, socket_fd, true) == false) {
         // No more write to the socket, but the server couldn't have
         // just shutdown the read half, so the server must be dead.
         break;
@@ -609,7 +622,7 @@ client_event_loop(int socket_fd) {
     }
 
     if (vector_has_content(&stdout_buf)) {
-      if (do_write(&stdout_buf, 1) == false) {
+      if (do_write(&stdout_buf, 1, false) == false) {
         // No more write to stdout
         break;
       }
@@ -617,7 +630,7 @@ client_event_loop(int socket_fd) {
 
     if (has_input(&poll_fds[0])) {
       bool more;
-      struct Vector buf_ori = read_alot(0, &more);
+      struct Vector buf_ori = read_alot(0, &more, false);
       struct Vector buf_ori_2 = vector_new();
       vector_push_into(&buf_ori_2, buf_ori.buf, buf_ori.len);
       translate_vector(&buf_ori, CR_TO_CRLF);
@@ -636,7 +649,7 @@ client_event_loop(int socket_fd) {
     }
 
     if (has_input(&poll_fds[1])) {
-      if (do_read(socket_fd, &stdout_buf, IDENTITY) == false) { break; }
+      if (do_read(socket_fd, &stdout_buf, IDENTITY, true) == false) { break; }
     } else if (has_hup(&poll_fds[1])) {
       break;
     }
@@ -659,6 +672,7 @@ client_main(int argc, char* argv[]) {
   int socket_fd = try_connect();
   setup_term();
   client_event_loop(socket_fd);
+  if (opt_log) { fclose(opt_log); }
   return 0;
 }
 
@@ -674,5 +688,6 @@ server_main(int argc, char* argv[]) {
   signal(SIGPIPE, SIG_IGN); /* Prefer handling EPIPE */
   int socket_fd = try_listen_and_accept();
   server_event_loop(socket_fd);
+  if (opt_log) { fclose(opt_log); }
   return 0;
 }
