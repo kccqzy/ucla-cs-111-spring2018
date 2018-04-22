@@ -109,6 +109,7 @@ vector_new(void) {
 static inline void
 vector_delete(struct Vector* this) {
   free(this->buf);
+  *this = vector_new();
 }
 
 static inline int
