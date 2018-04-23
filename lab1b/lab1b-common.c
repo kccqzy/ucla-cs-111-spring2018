@@ -411,9 +411,8 @@ parse_args(int argc, char* argv[]) {
       /* Determine whether there are no-option parameters left */
       if (optind == argc) {
         return;
-      } else {
-        /* FALLTHROUGH */
       }
+      /* FALLTHROUGH */
     default:
       fprintf(
         stderr,
