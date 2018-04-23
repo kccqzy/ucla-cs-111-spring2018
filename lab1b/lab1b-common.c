@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#define ZLIB_CONST
 #include "lab1b-common.h"
 #include <arpa/inet.h>
 #include <assert.h>
@@ -18,6 +19,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <zlib.h>
 
 /*************************************************************************
  * Global variables and constants
@@ -93,7 +95,7 @@ setup_term(void) {
 }
 
 /*************************************************************************
- * Vector
+ * Vector class
  *************************************************************************/
 struct Vector {
   uint8_t* buf;
@@ -144,9 +146,7 @@ vector_reserve(struct Vector* this, size_t target_size) {
   if (this->cap < target_size) {
     /* For efficiency reasons, if the requested target size is smaller than
        2*cap, we make it 2*cap. */
-    if (target_size < this->cap * 2) {
-      target_size = this->cap * 2;
-    }
+    if (target_size < this->cap * 2) { target_size = this->cap * 2; }
     /* Round up to the next multiple of 4096; add 4096 if already a multiple */
     size_t new_cap = ((target_size >> 12) + 1) << 12;
     this->buf = realloc(this->buf, new_cap);
@@ -162,6 +162,93 @@ vector_push_into(struct Vector* this, uint8_t const* buf, size_t size) {
   vector_reserve(this, target_size);
   memcpy(this->buf + this->len, buf, size);
   this->len = target_size;
+}
+
+/*************************************************************************
+ * BufferManager class
+ *************************************************************************/
+enum Compression { DO_NOTHING, DO_COMPRESS, DO_DECOMPRESS };
+
+struct BufferManager {
+  struct Vector v;
+  enum Compression comp;
+  z_stream z;
+};
+
+static inline struct BufferManager
+bm_new(enum Compression comp) {
+  struct BufferManager bm = {.v = vector_new(), .comp = comp};
+  if (comp == DO_COMPRESS) {
+    //int r = deflateInit(&bm.z, Z_DEFAULT_COMPRESSION);
+    int r = deflateInit(&bm.z, 0);
+    assert(r == Z_OK);
+  } else if (comp == DO_DECOMPRESS) {
+    int r = inflateInit(&bm.z);
+    assert(r == Z_OK);
+  }
+  return bm;
+}
+
+static inline void
+bm_delete(struct BufferManager* this) {
+  if (this->comp == DO_COMPRESS) {
+    deflateEnd(&this->z);
+  } else if (this->comp == DO_DECOMPRESS) {
+    inflateEnd(&this->z);
+  }
+  vector_delete(&this->v);
+  this->z = (z_stream){};
+}
+
+static inline int
+bm_get_next(struct BufferManager const* this) {
+  assert(this->comp != DO_COMPRESS);
+  return vector_get_next(&this->v);
+}
+
+static inline void
+bm_consume(struct BufferManager* this, size_t size) {
+  vector_consume(&this->v, size);
+}
+
+static inline bool
+bm_has_content(struct BufferManager const* this) {
+  return vector_has_content(&this->v);
+}
+
+static inline void
+bm_push_into(struct BufferManager* this, uint8_t const* buf, size_t size) {
+  if (!size) {return;}
+  enum {chunk_size = 4096};
+  if (this->comp == DO_NOTHING) {
+    vector_push_into(&this->v, buf, size);
+  } else if (this->comp == DO_COMPRESS) {
+    this->z.next_in = buf;
+    this->z.avail_in = size;
+    uint8_t current_chunk[chunk_size];
+    do {
+      this->z.next_out = current_chunk;
+      this->z.avail_out = chunk_size;
+      int r = deflate(&this->z, Z_SYNC_FLUSH);
+      assert(r == Z_OK);
+      size_t have = chunk_size - this->z.avail_out;
+      vector_push_into(&this->v, current_chunk, have);
+    } while (this->z.avail_out == 0);
+    assert(this->z.avail_in == 0);
+  } else if (this->comp == DO_DECOMPRESS) {
+    this->z.next_in = buf;
+    this->z.avail_in = size;
+    uint8_t current_chunk[chunk_size];
+    do {
+      this->z.next_out = current_chunk;
+      this->z.avail_out = chunk_size;
+      int r = inflate(&this->z, Z_SYNC_FLUSH);
+      assert(r == Z_OK);
+      size_t have = chunk_size - this->z.avail_out;
+      vector_push_into(&this->v, current_chunk, have);
+    } while (this->z.avail_out == 0);
+    assert(this->z.avail_in == 0);
+  }
 }
 
 /*************************************************************************
@@ -222,7 +309,7 @@ translate_vector(struct Vector* this, enum LineEndingTranslation trans) {
 
 
 /*************************************************************************
- * Buffer management
+ * Wrapped read/write
  *************************************************************************/
 
 static inline void
@@ -238,8 +325,8 @@ static inline struct Vector
 read_alot(int from, bool* more, bool do_log) {
   struct Vector buf = vector_new();
   while (1) {
-    uint8_t b[4096];
-    ssize_t r = read(from, b, 4096);
+    uint8_t b[65536];
+    ssize_t r = read(from, b, sizeof b);
     if (r == 0) {
       *more = false;
       return buf;
@@ -261,24 +348,24 @@ read_alot(int from, bool* more, bool do_log) {
 }
 
 static bool
-do_read(int from, struct Vector* to, enum LineEndingTranslation trans,
+do_read(int from, struct BufferManager* to, enum LineEndingTranslation trans,
         bool do_log) {
   bool more;
   struct Vector buf = read_alot(from, &more, do_log);
   translate_vector(&buf, trans);
-  vector_push_into(to, buf.buf, buf.len);
+  bm_push_into(to, buf.buf, buf.len);
   vector_delete(&buf);
   return more;
 }
 
 static bool
-do_write(struct Vector* from, int to, bool do_log) {
+do_write(struct BufferManager* from, int to, bool do_log) {
   while (1) {
-    if (!vector_has_content(from)) { return true; }
-    ssize_t w = write(to, from->buf, from->len);
+    if (!bm_has_content(from)) { return true; }
+    ssize_t w = write(to, from->v.buf, from->v.len);
     if (w > -1) {
-      if (do_log) { log_data(from->buf, w, "SENT"); }
-      vector_consume(from, w);
+      if (do_log) { log_data(from->v.buf, w, "SENT"); }
+      bm_consume(from, w);
       continue;
     } else {
       if (errno == EAGAIN) {
@@ -479,17 +566,17 @@ server_event_loop(int socket_fd) {
   make_non_blocking(child_stdout_fd);
   make_non_blocking(socket_fd);
 
-  struct Vector child_stdin_buf = vector_new();
-  struct Vector socket_buf = vector_new();
+  struct BufferManager child_stdin_buf = bm_new(opt_compress ? DO_DECOMPRESS : DO_NOTHING);
+  struct BufferManager socket_buf = bm_new(opt_compress ? DO_COMPRESS : DO_NOTHING);
 
   while (1) {
     struct pollfd poll_fds[] = {
       /* CSE please! */
       {.fd = child_stdout_fd, .events = POLLIN},
       {.fd = socket_fd,
-       .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
+       .events = bm_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
       {.fd = child_stdin_fd,
-       .events = vector_has_content(&child_stdin_buf) ? POLLOUT : 0}};
+       .events = bm_has_content(&child_stdin_buf) ? POLLOUT : 0}};
 
     int poll_rv = poll(poll_fds, sizeof poll_fds / sizeof(struct pollfd), -1);
     DIE_IF_MINUS_ONE(poll_rv, "could not poll");
@@ -507,13 +594,13 @@ server_event_loop(int socket_fd) {
     }
 
     /* Handle child stdin */
-    if (child_stdin_fd > -1 && vector_has_content(&child_stdin_buf)) {
-      if (vector_get_next(&child_stdin_buf) == 3) {
+    if (child_stdin_fd > -1 && bm_has_content(&child_stdin_buf)) {
+      if (bm_get_next(&child_stdin_buf) == 3) {
         DIE_IF_MINUS_ONE(kill(child_pid, SIGINT),
                          "could not send signal to child");
-        vector_consume(&child_stdin_buf, 1);
+        bm_consume(&child_stdin_buf, 1);
         continue;
-      } else if (vector_get_next(&child_stdin_buf) == 4) {
+      } else if (bm_get_next(&child_stdin_buf) == 4) {
         close(child_stdin_fd);
         child_stdin_fd = -1;
         continue;
@@ -525,7 +612,7 @@ server_event_loop(int socket_fd) {
     }
 
     /* Handle client */
-    if (socket_fd > -1 && vector_has_content(&socket_buf)) {
+    if (socket_fd > -1 && bm_has_content(&socket_buf)) {
       if (do_write(&socket_buf, socket_fd, true) == false) {
         if (child_stdin_fd > -1) {
           close(child_stdin_fd);
@@ -572,8 +659,8 @@ server_event_loop(int socket_fd) {
   fprintf(stderr, "SHELL EXIT SIGNAL=%d STATUS=%d\r\n", stat & 0x7f,
           (stat & 0xff00) >> 8);
 
-  vector_delete(&child_stdin_buf);
-  vector_delete(&socket_buf);
+  bm_delete(&child_stdin_buf);
+  bm_delete(&socket_buf);
 }
 
 static void
@@ -581,20 +668,20 @@ client_event_loop(int socket_fd) {
   make_non_blocking(0);
   make_non_blocking(socket_fd);
 
-  struct Vector socket_buf = vector_new();
-  struct Vector stdout_buf = vector_new();
+  struct BufferManager socket_buf = bm_new(opt_compress ? DO_COMPRESS : DO_NOTHING);
+  struct BufferManager stdout_buf = bm_new(opt_compress ? DO_DECOMPRESS : DO_NOTHING);
 
   while (1) {
     struct pollfd poll_fds[] = {
       {.fd = 0, .events = POLLIN},
       {.fd = socket_fd,
-       .events = vector_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
-      {.fd = 1, .events = vector_has_content(&stdout_buf) ? POLLOUT : 0}};
+       .events = bm_has_content(&socket_buf) ? POLLIN | POLLOUT : POLLIN},
+      {.fd = 1, .events = bm_has_content(&stdout_buf) ? POLLOUT : 0}};
 
     int poll_rv = poll(poll_fds, sizeof poll_fds / sizeof(struct pollfd), -1);
     DIE_IF_MINUS_ONE(poll_rv, "could not poll");
 
-    if (vector_has_content(&socket_buf)) {
+    if (bm_has_content(&socket_buf)) {
       if (do_write(&socket_buf, socket_fd, true) == false) {
         // No more write to the socket, but the server couldn't have
         // just shutdown the read half, so the server must be dead.
@@ -602,7 +689,7 @@ client_event_loop(int socket_fd) {
       }
     }
 
-    if (vector_has_content(&stdout_buf)) {
+    if (bm_has_content(&stdout_buf)) {
       if (do_write(&stdout_buf, 1, false) == false) {
         // No more write to stdout
         break;
@@ -616,8 +703,8 @@ client_event_loop(int socket_fd) {
       vector_push_into(&buf_ori_2, buf_ori.buf, buf_ori.len);
       translate_vector(&buf_ori, CR_TO_CRLF);
       translate_vector(&buf_ori_2, CR_TO_LF);
-      vector_push_into(&stdout_buf, buf_ori.buf, buf_ori.len);
-      vector_push_into(&socket_buf, buf_ori_2.buf, buf_ori_2.len);
+      bm_push_into(&stdout_buf, buf_ori.buf, buf_ori.len);
+      bm_push_into(&socket_buf, buf_ori_2.buf, buf_ori_2.len);
       vector_delete(&buf_ori); /* TODO optimize copying */
       vector_delete(&buf_ori_2);
       if (more == false) {
@@ -636,8 +723,8 @@ client_event_loop(int socket_fd) {
     }
   }
 
-  vector_delete(&socket_buf);
-  vector_delete(&stdout_buf);
+  bm_delete(&socket_buf);
+  bm_delete(&stdout_buf);
 }
 
 int

@@ -7,6 +7,7 @@
 
 CC=/usr/local/opt/llvm/bin/clang
 CFLAGS=-Wall -Wextra  -O0 -g -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -g
+LDFLAGS=-lz
 
 all: lab1b-client lab1b-server
 
@@ -20,10 +21,10 @@ lab1b-server.o: lab1b-server.c lab1b-common.h
 	$(CC) $(CFLAGS) $< -c -o $@
 
 lab1b-client: lab1b-client.o lab1b-common.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
 
 lab1b-server: lab1b-server.o lab1b-common.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
 
 .PHONY: clean dist all
 clean:
