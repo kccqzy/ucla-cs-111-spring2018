@@ -2,11 +2,10 @@
 # EMAIL: qzy@g.ucla.edu
 # ID: 404816794
 
-#CC=gcc
-#CFLAGS=-std=c99 -Wall -Wextra -O2
-
-CC=/usr/local/opt/llvm/bin/clang
-CFLAGS=-Wall -Wextra  -O0 -g -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -g
+CC=gcc
+CFLAGS=-std=c99 -Wall -Wextra -O2
+#CC=/usr/local/opt/llvm/bin/clang
+#CFLAGS=-Wall -Wextra  -O0 -g -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -g
 LDFLAGS=-lz
 
 all: lab1b-client lab1b-server
