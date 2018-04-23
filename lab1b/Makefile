@@ -20,10 +20,10 @@ lab1b-server.o: lab1b-server.c lab1b-common.h
 	$(CC) $(CFLAGS) $< -c -o $@
 
 lab1b-client: lab1b-client.o lab1b-common.o
-	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 lab1b-server: lab1b-server.o lab1b-common.o
-	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 .PHONY: clean dist all
 clean:
