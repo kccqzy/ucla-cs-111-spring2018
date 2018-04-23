@@ -400,20 +400,21 @@ parse_args(int argc, char* argv[]) {
     case 'p': opt_port = optarg; break;
     case 'h': opt_host = optarg; break;
     case 'c': opt_compress = true; break;
-    case 'l':
-      opt_log = fopen(optarg, "w"); /* Considering opening the file here */
+    case 'l': {
+      int logfd =
+        open(optarg, O_CREAT | O_TRUNC | O_WRONLY | O_APPEND | O_CLOEXEC, 0666);
+      DIE_IF_MINUS_ONE(logfd, "could not open log file '%s' for writing",
+                       optarg);
+      opt_log = fdopen(logfd, "w");
       if (!opt_log) {
-        fprintf(stderr, "%s: could not open log file '%s' for writing: %s\n",
-                argv[0], optarg, strerror(errno));
+        fprintf(stderr, "%s: could not create C stream for log file\n", argv[0]);
         exit(1);
       }
       setvbuf(opt_log, NULL, _IONBF, 0);
-      break;
+    } break;
     case -1:
       /* Determine whether there are no-option parameters left */
-      if (optind == argc) {
-        return;
-      }
+      if (optind == argc) { return; }
       /* FALLTHROUGH */
     default:
       fprintf(
