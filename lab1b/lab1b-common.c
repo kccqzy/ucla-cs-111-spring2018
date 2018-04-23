@@ -217,10 +217,10 @@ bm_has_content(struct BufferManager const* this) {
 }
 
 static inline void
-bm_push_into(struct BufferManager* this, uint8_t const* buf, size_t size) {
+bm_push_into(struct BufferManager* this, uint8_t const* buf, size_t size, bool no_comp) {
   if (!size) {return;}
   enum {chunk_size = 4096};
-  if (this->comp == DO_NOTHING) {
+  if (this->comp == DO_NOTHING || no_comp) {
     vector_push_into(&this->v, buf, size);
   } else if (this->comp == DO_COMPRESS) {
     this->z.next_in = buf;
@@ -353,7 +353,7 @@ do_read(int from, struct BufferManager* to, enum LineEndingTranslation trans,
   bool more;
   struct Vector buf = read_alot(from, &more, do_log);
   translate_vector(&buf, trans);
-  bm_push_into(to, buf.buf, buf.len);
+  bm_push_into(to, buf.buf, buf.len, false);
   vector_delete(&buf);
   return more;
 }
@@ -703,8 +703,8 @@ client_event_loop(int socket_fd) {
       vector_push_into(&buf_ori_2, buf_ori.buf, buf_ori.len);
       translate_vector(&buf_ori, CR_TO_CRLF);
       translate_vector(&buf_ori_2, CR_TO_LF);
-      bm_push_into(&stdout_buf, buf_ori.buf, buf_ori.len);
-      bm_push_into(&socket_buf, buf_ori_2.buf, buf_ori_2.len);
+      bm_push_into(&stdout_buf, buf_ori.buf, buf_ori.len, true);
+      bm_push_into(&socket_buf, buf_ori_2.buf, buf_ori_2.len, false);
       vector_delete(&buf_ori); /* TODO optimize copying */
       vector_delete(&buf_ori_2);
       if (more == false) {
