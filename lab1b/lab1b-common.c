@@ -229,7 +229,7 @@ bm_push_into(struct BufferManager* this, uint8_t const* buf, size_t size, bool n
       this->z.next_out = current_chunk;
       this->z.avail_out = chunk_size;
       int r = deflate(&this->z, Z_SYNC_FLUSH);
-      assert(r == Z_OK);
+      assert(r != Z_STREAM_ERROR);
       size_t have = chunk_size - this->z.avail_out;
       vector_push_into(&this->v, current_chunk, have);
     } while (this->z.avail_out == 0);
@@ -242,7 +242,9 @@ bm_push_into(struct BufferManager* this, uint8_t const* buf, size_t size, bool n
       this->z.next_out = current_chunk;
       this->z.avail_out = chunk_size;
       int r = inflate(&this->z, Z_SYNC_FLUSH);
-      assert(r == Z_OK);
+      assert(r != Z_STREAM_ERROR);
+      assert(r != Z_DATA_ERROR);
+      assert(r != Z_MEM_ERROR);
       size_t have = chunk_size - this->z.avail_out;
       vector_push_into(&this->v, current_chunk, have);
     } while (this->z.avail_out == 0);

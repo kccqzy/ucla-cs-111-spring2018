@@ -16,10 +16,15 @@ as reported by `tar tf *.tar.gz` are the following:
 
 Additionally notes follow.
 
-1. For simplicity, I have kept the single file approach. Most of the source
-code is present in lab1b-common.c file. It contains many functions and struct
+1. For simplicity, I have kept the single file approach. Most of the source code
+is present in lab1b-common.c file. It contains many functions and struct
 definitions local to the translation unit, and two exported functions,
-`client_main` and `server_main`. Those are functions are also
-declared in `lab1b-common.h`. Afterwards, the `lab1b-server.c` and
-`lab1b-client.c` simply contain a very simple main function that
-just calls the relevant actual main functions in `lab1b-common.c`.
+`client_main` and `server_main`. Those are functions are also declared in
+`lab1b-common.h`. Afterwards, the `lab1b-server.c` and `lab1b-client.c` simply
+contain a very simple main function that just calls the relevant actual main
+functions in `lab1b-common.c`.
+
+2. I previously asked on Piazza whether it is acceptable to block on write(2). A
+TA eventually responded, but I had already written much of the code assuming
+otherwise. Therefore this program deals with all file descriptors in a
+non-blocking manner.
