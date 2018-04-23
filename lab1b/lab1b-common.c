@@ -179,8 +179,7 @@ static inline struct BufferManager
 bm_new(enum Compression comp) {
   struct BufferManager bm = {.v = vector_new(), .comp = comp};
   if (comp == DO_COMPRESS) {
-    //int r = deflateInit(&bm.z, Z_DEFAULT_COMPRESSION);
-    int r = deflateInit(&bm.z, 0);
+    int r = deflateInit(&bm.z, Z_DEFAULT_COMPRESSION);
     assert(r == Z_OK);
   } else if (comp == DO_DECOMPRESS) {
     int r = inflateInit(&bm.z);
