@@ -29,7 +29,7 @@ lab1b-server: lab1b-server.o lab1b-common.o
 clean:
 	-rm -rf *.o *.s lab1b-client lab1b-server *.dSYM lab1b-404816794.tar.gz
 
-dist: lab1a-404816794.tar.gz
+dist: lab1b-404816794.tar.gz
 
-lab1b-404816794.tar.gz: Makefile README lab1b-client.c lab1b-server.c lab1b-common.h
+lab1b-404816794.tar.gz: Makefile README lab1b-client.c lab1b-server.c lab1b-common.h lab1b-common.c
 	tar czf $@ $^
