@@ -407,7 +407,7 @@ parse_args(int argc, char* argv[]) {
                 argv[0], optarg, strerror(errno));
         exit(1);
       }
-      setlinebuf(opt_log);
+      setvbuf(opt_log, NULL, _IONBF, 0);
       break;
     case -1:
       /* Determine whether there are no-option parameters left */
