@@ -1,0 +1,18 @@
+# CS 111 Project 4A
+
+NAME: Joe Qian
+EMAIL: qzy@g.ucla.edu
+ID: 404816794
+
+This is Project 4A. The files included in this submission,
+as reported by `tar tf *.tar.gz` are the following:
+
+    README ............. This readme file
+    connected.png ...... A screenshot of my beaglebone having a name and
+                         network acccess
+    copy.png ........... A screenshot where I copied a C file to the Beaglebone
+    build_run.png ...... A screenshot where I compiled and ran a C program
+    git.png ............ A screenshot where I installed git and cloned a repo
+
+The serial number of my Beaglebone is BBGW17090243 and the MAC address is
+2C:F7:F1:06:6A:73.
