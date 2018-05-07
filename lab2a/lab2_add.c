@@ -94,6 +94,7 @@ long long counter = 0;
 static void
 add(long long *pointer, long long value) {
   long long sum = *pointer + value;
+  if (opt_yield) { sched_yield(); }
   *pointer = sum;
 }
 
@@ -146,7 +147,7 @@ main(int argc, char *argv[]) {
   uint64_t operations = opt_threads * opt_iterations * 2;
   uint64_t duration = time_end - time_begin;
   uint64_t average_duration = duration / operations;
-  printf("add-none,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIi64 "\n",
-         opt_threads, opt_iterations, operations, duration, average_duration,
-         counter);
+  printf("%s,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIi64 "\n",
+         opt_yield ? "add-yield-none" : "add-none", opt_threads, opt_iterations,
+         operations, duration, average_duration, counter);
 }
