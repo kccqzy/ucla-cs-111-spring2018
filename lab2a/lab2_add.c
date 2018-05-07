@@ -100,20 +100,20 @@ parse_args(int argc, char *argv[]) {
  * Adding
  *************************************************************************/
 
-long long counter = 0;
+volatile long long counter = 0;
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 volatile int af = 0;
 
 static void
-add_none(long long *pointer, long long value) {
+add_none(volatile long long *pointer, long long value) {
   long long sum = *pointer + value;
   if (opt_yield) { sched_yield(); }
   *pointer = sum;
 }
 
 static void
-add_m(long long *pointer, long long value) {
+add_m(volatile long long *pointer, long long value) {
   pthread_mutex_lock(&mutex);
   long long sum = *pointer + value;
   if (opt_yield) { sched_yield(); }
@@ -122,7 +122,7 @@ add_m(long long *pointer, long long value) {
 }
 
 static void
-add_s(long long *pointer, long long value) {
+add_s(volatile long long *pointer, long long value) {
   while (__sync_lock_test_and_set(&af, 1))
     ;
   long long sum = *pointer + value;
@@ -132,7 +132,7 @@ add_s(long long *pointer, long long value) {
 }
 
 static void
-add_c(long long *pointer, long long value) {
+add_c(volatile long long *pointer, long long value) {
   long long ori, sum;
   do {
     ori = *pointer;
@@ -146,8 +146,9 @@ add_c(long long *pointer, long long value) {
  *************************************************************************/
 #define MAKE_WORKER(adder)                                                     \
   static void worker_##adder(void) {                                           \
-    for (int i = 0; i < opt_iterations; ++i) { adder(&counter, 1); }           \
-    for (int i = 0; i < opt_iterations; ++i) { adder(&counter, -1); }          \
+    int const it = opt_iterations;                                             \
+    for (int i = 0; i < it; ++i) { adder(&counter, 1); }                       \
+    for (int i = 0; i < it; ++i) { adder(&counter, -1); }                      \
   }
 
 MAKE_WORKER(add_none)

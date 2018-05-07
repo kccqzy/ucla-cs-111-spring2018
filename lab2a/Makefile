@@ -3,7 +3,7 @@
 # ID: 404816794
 
 CC=gcc
-CFLAGS=-std=c11 -Wall -Wextra -O1 -g
+CFLAGS=-std=c11 -Wall -Wextra -O2 -g
 LDFLAGS=-lpthread
 
 all: lab2_add
