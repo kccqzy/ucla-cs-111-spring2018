@@ -26,6 +26,7 @@ static struct option prog_options[] = {
   {.name = "threads", .has_arg = required_argument, .val = 't'},
   {.name = "iterations", .has_arg = required_argument, .val = 'i'},
   {.name = "yield", .has_arg = no_argument, .val = 'y'},
+  {.name = "sync", .has_arg = required_argument, .val = 's'},
   {}};
 
 static const char *progname = NULL;
@@ -33,6 +34,7 @@ static const char *progname = NULL;
 static int opt_threads = 1;
 static int opt_iterations = 1;
 static bool opt_yield = false;
+static char *opt_sync = "none";
 
 static void
 parse_args(int argc, char *argv[]) {
@@ -53,6 +55,15 @@ parse_args(int argc, char *argv[]) {
       }
       break;
     case 'y': opt_yield = true; break;
+    case 's':
+      opt_sync = optarg;
+      if (strlen(opt_sync) != 1 ||
+          (*opt_sync != 'm' && *opt_sync != 's' && *opt_sync != 'c')) {
+        fprintf(stderr, "%s: sync mode must be one of 'm', 's', 'c'\n",
+                argv[0]);
+        exit(1);
+      }
+      break;
     case -1:
       /* Determine whether there are no-option parameters left */
       if (optind == argc) { return; }
@@ -91,22 +102,57 @@ parse_args(int argc, char *argv[]) {
 
 long long counter = 0;
 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static void
-add(long long *pointer, long long value) {
+add_none(long long *pointer, long long value) {
   long long sum = *pointer + value;
   if (opt_yield) { sched_yield(); }
   *pointer = sum;
 }
 
+static void
+add_m(long long *pointer, long long value) {
+  pthread_mutex_lock(&mutex);
+  long long sum = *pointer + value;
+  if (opt_yield) { sched_yield(); }
+  *pointer = sum;
+  pthread_mutex_unlock(&mutex);
+}
+
+static void
+add_s(long long *pointer, long long value) {
+  assert(false && "unimplemented");
+  long long sum = *pointer + value;
+  if (opt_yield) { sched_yield(); }
+  *pointer = sum;
+  pthread_mutex_unlock(&mutex);
+}
+
+static void
+add_c(long long *pointer, long long value) {
+  assert(false && "unimplemented");
+  long long sum = *pointer + value;
+  if (opt_yield) { sched_yield(); }
+  *pointer = sum;
+  pthread_mutex_unlock(&mutex);
+}
+
 /*************************************************************************
  * Worker
  *************************************************************************/
-static int
-worker(void) {
-  for (int i = 0; i < opt_iterations; ++i) { add(&counter, 1); }
-  for (int i = 0; i < opt_iterations; ++i) { add(&counter, -1); }
-  return 0;
-}
+#define MAKE_WORKER(adder)                                                     \
+  static void worker_##adder(void) {                                           \
+    for (int i = 0; i < opt_iterations; ++i) { adder(&counter, 1); }           \
+    for (int i = 0; i < opt_iterations; ++i) { adder(&counter, -1); }          \
+  }
+
+MAKE_WORKER(add_none)
+MAKE_WORKER(add_m)
+MAKE_WORKER(add_s)
+MAKE_WORKER(add_c)
+
+#undef MAKE_WORKER
 
 static inline uint64_t
 get_nano(void) {
@@ -126,9 +172,18 @@ main(int argc, char *argv[]) {
   parse_args(argc, argv);
   assert(opt_threads > 0);
 
-  uint64_t time_begin = get_nano();
+  void (*worker)(void);
+  switch (*opt_sync) {
+  case 'n': worker = worker_add_none; break;
+  case 'm': worker = worker_add_m; break;
+  case 's': worker = worker_add_s; break;
+  case 'c': worker = worker_add_c; break;
+  default: assert(false && "unreachable"); exit(10);
+  }
 
   pthread_t th[opt_threads]; // VLA
+
+  uint64_t time_begin = get_nano();
   for (int i = 0; i < opt_threads; ++i) {
     if (0 != pthread_create(th + i, NULL, (void *(*) (void *) ) worker, NULL)) {
       fprintf(stderr, "%s: could not create worker thread %d.\n", argv[0], i);
@@ -141,13 +196,12 @@ main(int argc, char *argv[]) {
       return 1;
     }
   }
-
   uint64_t time_end = get_nano();
 
   uint64_t operations = opt_threads * opt_iterations * 2;
   uint64_t duration = time_end - time_begin;
   uint64_t average_duration = duration / operations;
-  printf("%s,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIi64 "\n",
-         opt_yield ? "add-yield-none" : "add-none", opt_threads, opt_iterations,
+  printf("add%s-%s,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIi64 "\n",
+         opt_yield ? "-yield" : "", opt_sync, opt_threads, opt_iterations,
          operations, duration, average_duration, counter);
 }
