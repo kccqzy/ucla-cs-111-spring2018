@@ -205,7 +205,7 @@ main(int argc, char *argv[]) {
   uint64_t operations = opt_threads * opt_iterations * 2;
   uint64_t duration = time_end - time_begin;
   uint64_t average_duration = duration / operations;
-  printf("add%s-%s,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIi64 "\n",
+  printf("add%s-%s,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%lld\n",
          opt_yield ? "-yield" : "", opt_sync, opt_threads, opt_iterations,
          operations, duration, average_duration, counter);
 }
