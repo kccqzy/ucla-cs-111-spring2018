@@ -10,6 +10,7 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -103,6 +104,7 @@ parse_args(int argc, char *argv[]) {
 long long counter = 0;
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+volatile struct atomic_flag af = ATOMIC_FLAG_INIT;
 
 static void
 add_none(long long *pointer, long long value) {
@@ -122,11 +124,12 @@ add_m(long long *pointer, long long value) {
 
 static void
 add_s(long long *pointer, long long value) {
-  assert(false && "unimplemented");
+  while (atomic_flag_test_and_set_explicit(&af, memory_order_acquire))
+    ;
   long long sum = *pointer + value;
   if (opt_yield) { sched_yield(); }
   *pointer = sum;
-  pthread_mutex_unlock(&mutex);
+  atomic_flag_clear(&af);
 }
 
 static void
