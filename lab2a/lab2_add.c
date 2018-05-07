@@ -134,11 +134,12 @@ add_s(long long *pointer, long long value) {
 
 static void
 add_c(long long *pointer, long long value) {
-  assert(false && "unimplemented");
-  long long sum = *pointer + value;
-  if (opt_yield) { sched_yield(); }
-  *pointer = sum;
-  pthread_mutex_unlock(&mutex);
+  long long ori, sum;
+  do {
+    ori = *pointer;
+    sum = ori + value;
+    if (opt_yield) { sched_yield(); }
+  } while (__sync_val_compare_and_swap(pointer, ori, sum) != ori);
 }
 
 /*************************************************************************
