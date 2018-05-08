@@ -190,6 +190,15 @@ get_nano(void) {
  *************************************************************************/
 SortedList_t *list;
 
+#define CONSISTENCY_CHECK(condition, msg)                                      \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      fprintf(stderr, "Corrupted list detected, aborting: " msg);              \
+      exit(2);                                                                 \
+    }                                                                          \
+  } while (0)
+
+
 static void
 worker(SortedListElement_t *insert_begin) {
   int const it = opt_iterations;
@@ -197,8 +206,11 @@ worker(SortedListElement_t *insert_begin) {
   (void) SortedList_length(list);
   for (int i = 0; i < it; ++i) {
     SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);
-    /* Should be equal to insert_begin+i */
-    (void) SortedList_delete(el);
+    CONSISTENCY_CHECK(el == insert_begin + i,
+                      "Looking up inserted element got unexpected element");
+    int dr = SortedList_delete(el);
+    CONSISTENCY_CHECK(dr == 0,
+                      "Deleting the inserted element reports corruption");
   }
 }
 
@@ -236,6 +248,8 @@ main(int argc, char *argv[]) {
     }
   }
   uint64_t time_end = get_nano();
+  CONSISTENCY_CHECK(SortedList_length(list) == 0,
+                    "Final list length is nonzero");
 
   uint64_t operations = opt_threads * opt_iterations * 3;
   uint64_t duration = time_end - time_begin;
@@ -249,5 +263,5 @@ main(int argc, char *argv[]) {
     opt_sync, opt_threads, opt_iterations, operations, duration,
     average_duration);
 
-  return SortedList_length(list) == 0 ? 0 : 2;
+  return 0;
 }

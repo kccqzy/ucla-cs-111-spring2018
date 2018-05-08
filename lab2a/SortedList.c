@@ -1,6 +1,6 @@
 #include "SortedList.h"
-#include <assert.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,6 +22,14 @@
 
 #define head next
 #define tail prev
+
+#define CONSISTENCY_CHECK(condition, msg)                                      \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      fprintf(stderr, "Corrupted list detected, aborting: " msg);              \
+      exit(2);                                                                 \
+    }                                                                          \
+  } while (0)
 
 int
 SortedList_length(SortedList_t* list) {
@@ -53,11 +61,11 @@ SortedList_lookup(SortedList_t* list, const char* key) {
 
 void
 SortedList_insert(SortedList_t* list, SortedListElement_t* element) {
-  assert(list);
-  assert(element->key);
+  CONSISTENCY_CHECK(element->key, "Provided list element has a NULL key");
   int oy = opt_yield;
   for (SortedListElement_t* p = list->head; p != list; p = p->next) {
-    assert(p->key);
+    CONSISTENCY_CHECK(p->key,
+                      "List element found during iteration has a NULL key");
     int cmp = strcmp(element->key, p->key);
     if (cmp == 0) {
       /* We've found the same element. Just return. */
