@@ -204,20 +204,58 @@ SortedList_t *list;
   } while (0)
 
 
-static void
-worker(SortedListElement_t *insert_begin) {
-  int const it = opt_iterations;
-  for (int i = 0; i < it; ++i) { SortedList_insert(list, insert_begin + i); }
-  (void) SortedList_length(list);
-  for (int i = 0; i < it; ++i) {
-    SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);
-    CONSISTENCY_CHECK(el == insert_begin + i,
-                      "Looking up inserted element got unexpected element");
-    int dr = SortedList_delete(el);
-    CONSISTENCY_CHECK(dr == 0,
-                      "Deleting the inserted element reports corruption");
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+volatile int af = 0;
+
+#define LOCK_m()                                                               \
+  do { pthread_mutex_lock(&mutex); } while (0)
+#define UNLOCK_m()                                                             \
+  do { pthread_mutex_unlock(&mutex); } while (0)
+#define LOCK_s()                                                               \
+  do {                                                                         \
+  } while (__sync_lock_test_and_set(&af, 1))
+#define UNLOCK_s()                                                             \
+  do { __sync_lock_release(&af); } while (0)
+#define LOCK_none()
+#define UNLOCK_none()
+
+
+#define MAKE_WORKER(how)                                                       \
+  static void worker_##how(SortedListElement_t *insert_begin) {                \
+    int const it = opt_iterations;                                             \
+    for (int i = 0; i < it; ++i) {                                             \
+      LOCK_##how();                                                            \
+      SortedList_insert(list, insert_begin + i);                               \
+      UNLOCK_##how();                                                          \
+    }                                                                          \
+    LOCK_##how();                                                              \
+    (void) SortedList_length(list);                                            \
+    UNLOCK_##how();                                                            \
+    for (int i = 0; i < it; ++i) {                                             \
+      LOCK_##how();                                                            \
+      SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);  \
+      UNLOCK_##how();                                                          \
+      CONSISTENCY_CHECK(el == insert_begin + i,                                \
+                        "Looking up inserted element got unexpected element"); \
+      LOCK_##how();                                                            \
+      int dr = SortedList_delete(el);                                          \
+      UNLOCK_##how();                                                          \
+      CONSISTENCY_CHECK(dr == 0,                                               \
+                        "Deleting the inserted element reports corruption");   \
+    }                                                                          \
   }
-}
+
+MAKE_WORKER(m)
+MAKE_WORKER(s)
+MAKE_WORKER(none)
+
+#undef MAKE_WORKER
+#undef LOCK_none
+#undef LOCK_m
+#undef LOCK_s
+#undef UNLOCK_none
+#undef UNLOCK_m
+#undef UNLOCK_s
 
 /*************************************************************************
  * Segfaults
@@ -249,6 +287,15 @@ main(int argc, char *argv[]) {
 
   /* Register segfault handler. */
   signal(SIGSEGV, segfault_handler);
+
+  /* Dispatch to the right worker */
+  void (*worker)(SortedListElement_t *);
+  switch (*opt_sync) {
+  case 'n': worker = worker_none; break;
+  case 'm': worker = worker_m; break;
+  case 's': worker = worker_s; break;
+  default: assert(false && "unreachable"); exit(10);
+  }
 
   pthread_t th[opt_threads]; // VLA
 
