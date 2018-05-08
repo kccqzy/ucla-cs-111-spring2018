@@ -1,9 +1,8 @@
 #!/bin/sh
 
-set -eux
+rm -f ./lab2_add.csv
 
-dd if=/dev/null of=./lab2_add.csv # truncate
-make lab2_add
+set -eux
 
 for iterations in 100 1000 10000 100000; do
     for threads in 2 4 8 12; do

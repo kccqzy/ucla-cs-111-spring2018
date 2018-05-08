@@ -6,7 +6,17 @@ CC=gcc
 CFLAGS=-std=c11 -Wall -Wextra -O2 -g
 LDFLAGS=-lpthread
 
-all: lab2_add lab2_list
+# Higher level targets
+build: lab2_add lab2_list
+
+tests: lab2_add.csv lab2_list.csv
+
+clean:
+	-rm -rf *.o *.s lab2_add lab2_list *.csv *.dSYM *.tar.gz
+
+.PHONY: clean dist build tests
+
+# Details
 
 lab2_add: lab2_add.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
@@ -23,6 +33,8 @@ lab2_list.o: lab2_list.c SortedList.h
 SortedList.o: SortedList.c SortedList.h
 	$(CC) $(CFLAGS) $< -c -o $@
 
-.PHONY: clean dist all
-clean:
-	-rm -rf *.o *.s lab2_add lab2_list *.csv *.dSYM *.tar.gz
+lab2_add.csv: lab2_add
+	./lab2_add_test.sh
+
+lab2_list.csv: lab2_list
+	./lab2_list_test.sh
