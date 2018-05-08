@@ -114,7 +114,10 @@ parse_args(int argc, char *argv[]) {
 void *
 xmalloc(size_t s) {
   void *p = malloc(s);
-  if (!p) abort();
+  if (!p) {
+    fprintf(stderr, "%s: could not allocate memory", progname);
+    exit(1);
+  }
   return p;
 }
 
