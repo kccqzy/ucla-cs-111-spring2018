@@ -26,7 +26,7 @@
 #define CONSISTENCY_CHECK(condition, msg)                                      \
   do {                                                                         \
     if (!(condition)) {                                                        \
-      fprintf(stderr, "Corrupted list detected, aborting: " msg);              \
+      fprintf(stderr, "Corrupted list detected, aborting: " msg "\n");         \
       exit(2);                                                                 \
     }                                                                          \
   } while (0)

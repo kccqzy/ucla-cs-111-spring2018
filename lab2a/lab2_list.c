@@ -10,6 +10,7 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -191,12 +192,13 @@ get_nano(void) {
 /*************************************************************************
  * Worker
  *************************************************************************/
+
 SortedList_t *list;
 
 #define CONSISTENCY_CHECK(condition, msg)                                      \
   do {                                                                         \
     if (!(condition)) {                                                        \
-      fprintf(stderr, "Corrupted list detected, aborting: " msg);              \
+      fprintf(stderr, "Corrupted list detected, aborting: " msg "\n");         \
       exit(2);                                                                 \
     }                                                                          \
   } while (0)
@@ -217,6 +219,17 @@ worker(SortedListElement_t *insert_begin) {
   }
 }
 
+/*************************************************************************
+ * Segfaults
+ *************************************************************************/
+static void
+segfault_handler(int sig) {
+  (void) sig;
+  const char msg[] = "Corrupted list: segmentation fault\n";
+  write(2, msg, sizeof msg - 1);
+  _exit(2);
+}
+
 
 int
 main(int argc, char *argv[]) {
@@ -233,6 +246,9 @@ main(int argc, char *argv[]) {
 
   /* Make elements. */
   make_elements();
+
+  /* Register segfault handler. */
+  signal(SIGSEGV, segfault_handler);
 
   pthread_t th[opt_threads]; // VLA
 
