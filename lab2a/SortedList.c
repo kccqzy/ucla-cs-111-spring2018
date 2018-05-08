@@ -1,5 +1,6 @@
 #include "SortedList.h"
 #include <assert.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,14 +26,19 @@
 int
 SortedList_length(SortedList_t* list) {
   if (!list) return 0;
+  int oy = opt_yield;
   int rv = 0;
-  for (SortedListElement_t* p = list->head; p != list; p = p->next) { rv++; }
+  for (SortedListElement_t* p = list->head; p != list; p = p->next) {
+    rv++;
+    if (oy & LOOKUP_YIELD) { sched_yield(); }
+  }
   return rv;
 }
 
 SortedListElement_t*
 SortedList_lookup(SortedList_t* list, const char* key) {
   if (!list) return NULL;
+  int oy = opt_yield;
   for (SortedListElement_t* p = list->head; p != list; p = p->next) {
     int cmp = strcmp(key, p->key);
     if (cmp == 0) {
@@ -40,6 +46,7 @@ SortedList_lookup(SortedList_t* list, const char* key) {
     } else if (cmp < 0) {
       return NULL;
     }
+    if (oy & LOOKUP_YIELD) { sched_yield(); }
   }
   return NULL;
 }
@@ -48,6 +55,7 @@ void
 SortedList_insert(SortedList_t* list, SortedListElement_t* element) {
   assert(list);
   assert(element->key);
+  int oy = opt_yield;
   for (SortedListElement_t* p = list->head; p != list; p = p->next) {
     assert(p->key);
     int cmp = strcmp(element->key, p->key);
@@ -59,6 +67,7 @@ SortedList_insert(SortedList_t* list, SortedListElement_t* element) {
          one. Insert before it. */
       element->prev = p->prev;
       element->next = p;
+      if (oy & INSERT_YIELD) { sched_yield(); }
       p->prev->next = element;
       p->prev = element;
       return;
@@ -67,6 +76,7 @@ SortedList_insert(SortedList_t* list, SortedListElement_t* element) {
   /* We've reached the end. Insert at the end. */
   element->next = list;
   element->prev = list->tail;
+  if (oy & INSERT_YIELD) { sched_yield(); }
   list->tail = element;
   if (list->head == list->tail) {
     /* Empty or singleton list */
@@ -87,6 +97,7 @@ SortedList_delete(SortedListElement_t* element) {
     return 1;
   } else {
     element->next->prev = element->prev;
+    if (opt_yield & DELETE_YIELD) { sched_yield(); }
     element->prev->next = element->next;
     element->next = NULL;
     element->prev = NULL;
