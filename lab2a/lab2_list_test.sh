@@ -11,8 +11,10 @@ done
 
 # Problematic runs (multi-threaded without sync)
 for yieldopt in i d il dl; do
-    until ./lab2_list --iterations 4 --threads 2 --yield $yieldopt >> ./lab2_list.csv; do
-        echo "Failed, retrying..." >&2
+    for iterations in 10 100; do
+        until ./lab2_list --iterations $iterations --threads 2 --yield $yieldopt >> ./lab2_list.csv; do
+            echo "Failed, retrying..." >&2
+        done
     done
 done
 
@@ -25,11 +27,9 @@ done
 
 # Good runs with yield
 for yieldopt in i d il dl; do
-    for threads in 2 4 8 12; do
-        for iterations in 4 8 16 32; do
-            for sync in s m; do
-                ./lab2_list --yield $yieldopt --iterations $iterations --threads $threads --sync $sync >> ./lab2_list.csv
-            done
+    for iterations in 4 8 16 32; do
+        for sync in s m; do
+            ./lab2_list --yield $yieldopt --iterations $iterations --threads 12 --sync $sync >> ./lab2_list.csv
         done
     done
 done
