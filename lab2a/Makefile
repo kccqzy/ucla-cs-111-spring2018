@@ -14,7 +14,12 @@ tests: lab2_add.csv lab2_list.csv
 clean:
 	-rm -rf *.o *.s lab2_add lab2_list *.csv *.dSYM *.tar.gz
 
-.PHONY: clean dist build tests
+dist: lab2a-404816794.tar.gz
+
+lab2a-404816794.tar.gz: lab2_add.c SortedList.h SortedList.c lab2_list.c Makefile lab2_add.csv lab2_list.csv
+	tar cjvf $@ $^
+
+.PHONY: clean dist build tests graphs
 
 # Details
 
