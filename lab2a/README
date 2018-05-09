@@ -10,3 +10,57 @@ as reported by `tar tf *.tar.gz` are the following:
 
     README ............. This readme file
     Makefile ........... A Makefile to build the project
+    lab2_add.c ......... Implementation of the addition experiment
+    lab2_list.c ........ Implementation of the linked list experiment
+    SortedList.h ....... Provided interface for sorted doubly linked list
+    SortedList.c ....... Implementation of the same
+    lab2_add.csv ....... Raw data for the addition experiment
+    lab2_list.csv ...... Raw data for the linked list experiment
+    lab2_add_test.sh ... Data generation script for the addition experiment
+    lab2_list_test.sh .. Data generation script for the linked list experiment
+    lab2_add-1.png ..... Plot of threads and iterations that run without failure
+    lab2_add-2.png ..... Plot of the cost of yielding in different iterations
+    lab2_add-3.png ..... Plot of single-threaded per-operation cost in different iterations
+    lab2_add-4.png ..... Plot of threads and iterations that run without failure in 4 sync modes
+    lab2_add-5.png ..... Plot of multi-threaded per-operation cost in different iterations and sync modes
+    lab2_list-1.png .... Plot of single-threaded per-operation cost in different iterations
+    lab2_list-2.png .... Plot of unprotected threads and iterations that run without failure
+    lab2_list-3.png .... Plot of protected iterations that run without failure
+    lab2_list-4.png .... Plot of multi-threaded per-operation cost in different threads
+
+Answers to the questions follow.
+
+Question 2.1.1. Many iterations are needed before errors are seen because with
+fewer iterations, the scheduler does not switch to a different thread before
+all the iterations complete.
+
+Question 2.1.2. The yield runs are so much slower for several reasons; first
+calling yield() incurs the cost of a system call (microseconds) when the
+addition operation itself only takes nanoseconds. Furthermore, when a yield
+happens, the registers are saved, the level 1 instruction and data caches may
+be flushed (if yielding to a different process), and TLB is flushed. Saving the
+processor state has a cost, and switching back to the processor state has a
+greater cost. It is not possible to get per-operation timings because the cost
+of yielding itself so greatly swarfs the cost of the operation itself.
+
+Question 2.1.3. The average cost per operation drops with increasing iterations
+because of the overhead in measurement diminishes as compared to the total cost
+of the operations. With just a handful of operations, the cost includes
+overhead such as function calls and uncached instruction decoding. Those costs
+are amortized across all iterations, so with increasing iterations they become
+negligible.
+
+Question 2.1.4. For low number of threads, the chance of contention is low.
+When the number of threads is increased, spinlock becomes increasingly more
+inefficient as the threads burns CPU cycles waiting instead of letting another
+thread that holds the lock run.
+
+Question 2.2.1. Comparing the scalability of mutexes, one can see that for the
+addition experiment, the cost per operation increases and then gradually
+becomes flat. On the other hand, for the doubly linked list, the
+length-adjusted cost per operation increases.
+
+Question 2.2.2. Comparing the scalability of spinlocks, one can see that for
+the addition experiment, the cost per operation increases at a much faster rate
+than the one with mutexes.  On the other hand, for the doubly linked list, the
+length-adjusted cost per operation increases, slower than that of the mutexes. 
