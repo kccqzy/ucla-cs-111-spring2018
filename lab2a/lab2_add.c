@@ -145,10 +145,12 @@ add_c(volatile long long *pointer, long long value) {
  * Worker
  *************************************************************************/
 #define MAKE_WORKER(adder)                                                     \
-  static void worker_##adder(void) {                                           \
+  static void *worker_##adder(void *arg) {                                     \
+    (void) arg;                                                                \
     int const it = opt_iterations;                                             \
     for (int i = 0; i < it; ++i) { adder(&counter, 1); }                       \
     for (int i = 0; i < it; ++i) { adder(&counter, -1); }                      \
+    return NULL;                                                               \
   }
 
 MAKE_WORKER(add_none)
@@ -176,7 +178,7 @@ main(int argc, char *argv[]) {
   parse_args(argc, argv);
   assert(opt_threads > 0);
 
-  void (*worker)(void);
+  void *(*worker)(void *);
   switch (*opt_sync) {
   case 'n': worker = worker_add_none; break;
   case 'm': worker = worker_add_m; break;
@@ -189,7 +191,7 @@ main(int argc, char *argv[]) {
 
   uint64_t time_begin = get_nano();
   for (int i = 0; i < opt_threads; ++i) {
-    if (0 != pthread_create(th + i, NULL, (void *(*) (void *) ) worker, NULL)) {
+    if (0 != pthread_create(th + i, NULL, worker, NULL)) {
       fprintf(stderr, "%s: could not create worker thread %d.\n", argv[0], i);
       return 1;
     }

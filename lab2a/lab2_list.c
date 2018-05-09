@@ -221,7 +221,8 @@ volatile int af = 0;
 
 
 #define MAKE_WORKER(how)                                                       \
-  static void worker_##how(SortedListElement_t *insert_begin) {                \
+  static void *worker_##how(void *arg) {                                       \
+    SortedListElement_t *insert_begin = (SortedListElement_t *) arg;           \
     int const it = opt_iterations;                                             \
     for (int i = 0; i < it; ++i) {                                             \
       LOCK_##how();                                                            \
@@ -243,6 +244,7 @@ volatile int af = 0;
       CONSISTENCY_CHECK(dr == 0,                                               \
                         "Deleting the inserted element reports corruption");   \
     }                                                                          \
+    return NULL;                                                               \
   }
 
 MAKE_WORKER(m)
@@ -289,7 +291,7 @@ main(int argc, char *argv[]) {
   signal(SIGSEGV, segfault_handler);
 
   /* Dispatch to the right worker */
-  void (*worker)(SortedListElement_t *);
+  void *(*worker)(void *);
   switch (*opt_sync) {
   case 'n': worker = worker_none; break;
   case 'm': worker = worker_m; break;
