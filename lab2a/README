@@ -18,6 +18,8 @@ as reported by `tar tf *.tar.gz` are the following:
     lab2_list.csv ...... Raw data for the linked list experiment
     lab2_add_test.sh ... Data generation script for the addition experiment
     lab2_list_test.sh .. Data generation script for the linked list experiment
+    lab2_add.gp ........ Provided plotting script for the addition experiment
+    lab2_list.gp ....... Provided plotting script for the linked list experiment
     lab2_add-1.png ..... Plot of threads and iterations that run without failure
     lab2_add-2.png ..... Plot of the cost of yielding in different iterations
     lab2_add-3.png ..... Plot of single-threaded per-operation cost in different iterations
