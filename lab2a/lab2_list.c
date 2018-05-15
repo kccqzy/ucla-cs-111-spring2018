@@ -266,7 +266,8 @@ static void
 segfault_handler(int sig) {
   (void) sig;
   const char msg[] = "Corrupted list: segmentation fault\n";
-  write(2, msg, sizeof msg - 1);
+  ssize_t r = write(2, msg, sizeof msg - 1);
+  (void) r; // stupid warning about ignoring result of write(2)
   _exit(2);
 }
 
