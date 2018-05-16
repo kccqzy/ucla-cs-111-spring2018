@@ -38,10 +38,13 @@ lab2b_1.csv: lab2_list lab2b_1.sh
 lab2b_1.png: lab2b_1.csv lab2b_1.gp
 	./lab2b_1.gp
 
+lab2b_2.png: lab2b_1.csv lab2b_2.gp
+	./lab2b_2.gp
+
 profile.out: lab2_list
 	env CPUPROFILE=$@ ./lab2_list --iterations 1000 --threads 12 --sync s
 
-lab2b-404816794.tar.gz: SortedList.h SortedList.c lab2_list.c Makefile lab2b_1.sh lab2b_1.gp
+lab2b-404816794.tar.gz: SortedList.h SortedList.c lab2_list.c Makefile lab2b_1.sh lab2b_1.gp profile.out lab2b_1.png lab2b_2.png
 	tar czf $@ $^
 
 # Local Variables:
