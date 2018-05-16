@@ -28,6 +28,7 @@ as reported by `tar tf *.tar.gz` are the following:
     lab2_3.sh .......... Script to generate data for plot 3
     lab2_4.sh .......... Script to generate data for plot 4
     lab2_5.sh .......... Script to generate data for plot 5
+    lab2b_list.csv ..... Combined data file
 
 Answers to the questions follow.
 
