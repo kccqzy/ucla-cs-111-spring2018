@@ -30,6 +30,7 @@ static struct option prog_options[] = {
   {.name = "iterations", .has_arg = required_argument, .val = 'i'},
   {.name = "yield", .has_arg = required_argument, .val = 'y'},
   {.name = "sync", .has_arg = required_argument, .val = 's'},
+  {.name = "lists", .has_arg = required_argument, .val = 'l'},
   {}};
 
 static const char *progname = NULL;
@@ -38,6 +39,7 @@ static int opt_threads = 1;
 static int opt_iterations = 1;
 int opt_yield = 0;
 static char *opt_sync = "none";
+static int opt_lists = 1;
 
 static void
 parse_args(int argc, char *argv[]) {
@@ -54,6 +56,13 @@ parse_args(int argc, char *argv[]) {
       opt_iterations = atoi(optarg);
       if (opt_iterations <= 0) {
         fprintf(stderr, "%s: number of iterations must be positive\n", argv[0]);
+        exit(1);
+      }
+      break;
+    case 'l':
+      opt_lists = atoi(optarg);
+      if (opt_lists <= 0) {
+        fprintf(stderr, "%s: number of lists must be positive\n", argv[0]);
         exit(1);
       }
       break;
@@ -112,9 +121,19 @@ parse_args(int argc, char *argv[]) {
  * Utilities
  *************************************************************************/
 
-void *
+static void *
 xmalloc(size_t s) {
   void *p = malloc(s);
+  if (!p) {
+    fprintf(stderr, "%s: could not allocate memory", progname);
+    exit(1);
+  }
+  return p;
+}
+
+static void *
+xcalloc(size_t count, size_t size) {
+  void *p = calloc(count, size);
   if (!p) {
     fprintf(stderr, "%s: could not allocate memory", progname);
     exit(1);
@@ -170,12 +189,7 @@ make_elements(void) {
   }
 
   /* Next create all the list elements. */
-  all_elements = calloc(items, sizeof(SortedListElement_t));
-  if (!all_elements) {
-    fprintf(stderr, "%s: could not allocate memory for all elements\n",
-            progname);
-    exit(1);
-  }
+  all_elements = xcalloc(items, sizeof(SortedListElement_t));
   for (size_t i = 0; i < items; ++i) {
     all_elements[i].key = all_keys + i * 17;
   }
@@ -198,7 +212,7 @@ struct WorkerArgs {
   uint64_t lock_acquire_time;
 };
 
-SortedList_t *list;
+SortedList_t *lists;
 
 #define CONSISTENCY_CHECK(condition, msg)                                      \
   do {                                                                         \
@@ -230,12 +244,14 @@ volatile int af = 0;
     struct WorkerArgs *args = (struct WorkerArgs *) arg;                       \
     SortedListElement_t *insert_begin = args->insert_begin;                    \
     int const it = opt_iterations;                                             \
+    int const li = opt_lists;                                                  \
     uint64_t lock_acquire_time = 0;                                            \
                                                                                \
     for (int i = 0; i < it; ++i) {                                             \
       lock_acquire_time -= get_nano();                                         \
       LOCK_##how();                                                            \
       lock_acquire_time += get_nano();                                         \
+      SortedList_t *list = lists + *insert_begin[i].key % opt_lists;           \
       SortedList_insert(list, insert_begin + i);                               \
       UNLOCK_##how();                                                          \
     }                                                                          \
@@ -243,13 +259,14 @@ volatile int af = 0;
     lock_acquire_time -= get_nano();                                           \
     LOCK_##how();                                                              \
     lock_acquire_time += get_nano();                                           \
-    (void) SortedList_length(list);                                            \
+    for (int i = 0; i < li; ++i) { (void) SortedList_length(lists + i); };     \
     UNLOCK_##how();                                                            \
                                                                                \
     for (int i = 0; i < it; ++i) {                                             \
       lock_acquire_time -= get_nano();                                         \
       LOCK_##how();                                                            \
       lock_acquire_time += get_nano();                                         \
+      SortedList_t *list = lists + *insert_begin[i].key % opt_lists;           \
       SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);  \
       UNLOCK_##how();                                                          \
       CONSISTENCY_CHECK(el == insert_begin + i,                                \
@@ -300,10 +317,11 @@ main(int argc, char *argv[]) {
   assert(opt_iterations > 0);
 
   /* Initialize an empty list. */
-  list = xmalloc(sizeof(SortedList_t));
-  list->key = NULL;
-  list->next = list;
-  list->prev = list;
+  lists = xcalloc(opt_lists, sizeof(SortedList_t));
+  for (int i = 0; i < opt_lists; ++i) {
+    lists[i].next = &lists[i];
+    lists[i].prev = &lists[i];
+  }
 
   /* Make elements. */
   make_elements();
@@ -341,8 +359,12 @@ main(int argc, char *argv[]) {
     }
   }
   uint64_t time_end = get_nano();
-  CONSISTENCY_CHECK(SortedList_length(list) == 0,
-                    "Final list length is nonzero");
+
+  int final_list_length = 0;
+  for (int i = 0; i < opt_lists; ++i) {
+    final_list_length += SortedList_length(lists + i);
+  }
+  CONSISTENCY_CHECK(final_list_length == 0, "Final list length is nonzero");
 
   uint64_t operations = opt_threads * opt_iterations * 3;
   uint64_t duration = time_end - time_begin;
