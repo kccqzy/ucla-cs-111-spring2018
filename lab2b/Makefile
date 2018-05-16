@@ -21,6 +21,8 @@ clean-full:
 
 profile: profile.out
 
+dist: lab2b-404816794.tar.gz
+
 .PHONY: clean clean-full real-dist dist build tests graphs
 
 # Details
@@ -64,7 +66,7 @@ lab2b_5.png: lab2b_5.csv lab2b_5.gp
 profile.out: lab2_list
 	env CPUPROFILE=$@ ./lab2_list --iterations 1000 --threads 12 --sync s
 
-lab2b-404816794.tar.gz: SortedList.h SortedList.c lab2_list.c Makefile lab2b_1.sh lab2b_1.gp profile.out lab2b_1.png lab2b_2.png lab2b_3.png lab2b_4.png lab2b_5.png
+lab2b-404816794.tar.gz: SortedList.h SortedList.c lab2_list.c README Makefile lab2b_1.sh lab2b_3.sh lab2b_4.sh lab2b_5.sh lab2b_1.gp lab2b_2.gp lab2b_3.gp lab2b_4.gp lab2b_5.gp profile.out lab2b_1.png lab2b_2.png lab2b_3.png lab2b_4.png lab2b_5.png
 	tar czf $@ $^
 
 # Local Variables:
