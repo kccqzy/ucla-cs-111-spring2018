@@ -193,6 +193,11 @@ get_nano(void) {
  * Worker
  *************************************************************************/
 
+struct WorkerArgs {
+  SortedListElement_t *insert_begin;
+  uint64_t lock_acquire_time;
+};
+
 SortedList_t *list;
 
 #define CONSISTENCY_CHECK(condition, msg)                                      \
@@ -222,28 +227,43 @@ volatile int af = 0;
 
 #define MAKE_WORKER(how)                                                       \
   static void *worker_##how(void *arg) {                                       \
-    SortedListElement_t *insert_begin = (SortedListElement_t *) arg;           \
+    struct WorkerArgs *args = (struct WorkerArgs *) arg;                       \
+    SortedListElement_t *insert_begin = args->insert_begin;                    \
     int const it = opt_iterations;                                             \
+    uint64_t lock_acquire_time = 0;                                            \
+                                                                               \
     for (int i = 0; i < it; ++i) {                                             \
+      lock_acquire_time -= get_nano();                                         \
       LOCK_##how();                                                            \
+      lock_acquire_time += get_nano();                                         \
       SortedList_insert(list, insert_begin + i);                               \
       UNLOCK_##how();                                                          \
     }                                                                          \
+                                                                               \
+    lock_acquire_time -= get_nano();                                           \
     LOCK_##how();                                                              \
+    lock_acquire_time += get_nano();                                           \
     (void) SortedList_length(list);                                            \
     UNLOCK_##how();                                                            \
+                                                                               \
     for (int i = 0; i < it; ++i) {                                             \
+      lock_acquire_time -= get_nano();                                         \
       LOCK_##how();                                                            \
+      lock_acquire_time += get_nano();                                         \
       SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);  \
       UNLOCK_##how();                                                          \
       CONSISTENCY_CHECK(el == insert_begin + i,                                \
                         "Looking up inserted element got unexpected element"); \
+                                                                               \
+      lock_acquire_time -= get_nano();                                         \
       LOCK_##how();                                                            \
+      lock_acquire_time += get_nano();                                         \
       int dr = SortedList_delete(el);                                          \
       UNLOCK_##how();                                                          \
       CONSISTENCY_CHECK(dr == 0,                                               \
                         "Deleting the inserted element reports corruption");   \
     }                                                                          \
+    args->lock_acquire_time = lock_acquire_time;                               \
     return NULL;                                                               \
   }
 
@@ -300,12 +320,16 @@ main(int argc, char *argv[]) {
   default: assert(false && "unreachable"); exit(10);
   }
 
-  pthread_t th[opt_threads]; // VLA
+  pthread_t th[opt_threads];
+  struct WorkerArgs wa[opt_threads];
+  for (int i = 0; i < opt_threads; ++i) {
+    wa[i].lock_acquire_time = 0;
+    wa[i].insert_begin = all_elements + opt_iterations * i;
+  }
 
   uint64_t time_begin = get_nano();
   for (int i = 0; i < opt_threads; ++i) {
-    if (0 != pthread_create(th + i, NULL, (void *(*) (void *) ) worker,
-                            all_elements + opt_iterations * i)) {
+    if (0 != pthread_create(th + i, NULL, worker, wa + i)) {
       fprintf(stderr, "%s: could not create worker thread %d.\n", argv[0], i);
       return 1;
     }
@@ -323,14 +347,20 @@ main(int argc, char *argv[]) {
   uint64_t operations = opt_threads * opt_iterations * 3;
   uint64_t duration = time_end - time_begin;
   uint64_t average_duration = duration / operations;
+  uint64_t average_wait_for_lock = 0;
+  for (int i = 0; i < opt_threads; ++i) {
+    average_wait_for_lock += wa[i].lock_acquire_time;
+  }
+  average_wait_for_lock /= operations;
   printf(
-    "list-%s%s%s%s-%s,%d,%d,1,%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
+    "list-%s%s%s%s-%s,%d,%d,1,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
+    "\n",
     opt_yield & INSERT_YIELD ? "i" : "", /* Likely inefficient but don't care */
     opt_yield & DELETE_YIELD ? "d" : "", /* Likely inefficient but don't care */
     opt_yield & LOOKUP_YIELD ? "l" : "", /* Likely inefficient but don't care */
     opt_yield == 0 ? "none" : "",        /* Likely inefficient but don't care */
     opt_sync, opt_threads, opt_iterations, operations, duration,
-    average_duration);
+    average_duration, average_wait_for_lock);
 
   return 0;
 }
