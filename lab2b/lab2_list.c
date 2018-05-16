@@ -214,10 +214,11 @@ struct WorkerArgs {
 
 SortedList_t *lists;
 
-#define CONSISTENCY_CHECK(condition, msg)                                      \
+#define CONSISTENCY_CHECK(condition, msg, ...)                                 \
   do {                                                                         \
     if (!(condition)) {                                                        \
-      fprintf(stderr, "Corrupted list detected, aborting: " msg "\n");         \
+      fprintf(stderr, "Corrupted list detected, aborting: " msg "\n",          \
+              ##__VA_ARGS__);                                                  \
       exit(2);                                                                 \
     }                                                                          \
   } while (0)
@@ -274,7 +275,9 @@ static volatile int *spinlocks;
       SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);  \
       UNLOCK_##how(n);                                                         \
       CONSISTENCY_CHECK(el == insert_begin + i,                                \
-                        "Looking up inserted element got unexpected element"); \
+                        "Looking up inserted element got unexpected element; " \
+                        "expecting %p found %p",                               \
+                        insert_begin + i, el);                                 \
                                                                                \
       lock_acquire_time -= get_nano();                                         \
       LOCK_##how(n);                                                           \
