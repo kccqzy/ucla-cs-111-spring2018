@@ -9,7 +9,9 @@ LDFLAGS=-lpthread -Wl,--no-as-needed,-lprofiler,--as-needed
 # Higher level targets
 build: lab2_list
 
-tests: lab2_list.csv
+tests: lab2b_1.csv lab2b_3.csv
+
+graphs: lab2b_1.png lab2b_2.png lab2b_3.png
 
 clean:
 	-rm -rf *.o *.s lab2_list *.dSYM *.tar.gz
@@ -35,16 +37,22 @@ SortedList.o: SortedList.c SortedList.h
 lab2b_1.csv: lab2_list lab2b_1.sh
 	./lab2b_1.sh
 
+lab2b_3.csv: lab2_list lab2b_3.sh
+	./lab2b_3.sh
+
 lab2b_1.png: lab2b_1.csv lab2b_1.gp
 	./lab2b_1.gp
 
 lab2b_2.png: lab2b_1.csv lab2b_2.gp
 	./lab2b_2.gp
 
+lab2b_3.png: lab2b_3.csv lab2b_3.gp
+	./lab2b_3.gp
+
 profile.out: lab2_list
 	env CPUPROFILE=$@ ./lab2_list --iterations 1000 --threads 12 --sync s
 
-lab2b-404816794.tar.gz: SortedList.h SortedList.c lab2_list.c Makefile lab2b_1.sh lab2b_1.gp profile.out lab2b_1.png lab2b_2.png
+lab2b-404816794.tar.gz: SortedList.h SortedList.c lab2_list.c Makefile lab2b_1.sh lab2b_1.gp profile.out lab2b_1.png lab2b_2.png lab2b_3.png
 	tar czf $@ $^
 
 # Local Variables:
