@@ -223,20 +223,20 @@ SortedList_t *lists;
   } while (0)
 
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-volatile int af = 0;
+static pthread_mutex_t *mutexes;
+static volatile int *spinlocks;
 
-#define LOCK_m()                                                               \
-  do { pthread_mutex_lock(&mutex); } while (0)
-#define UNLOCK_m()                                                             \
-  do { pthread_mutex_unlock(&mutex); } while (0)
-#define LOCK_s()                                                               \
+#define LOCK_m(n)                                                              \
+  do { pthread_mutex_lock(mutexes + (n)); } while (0)
+#define UNLOCK_m(n)                                                            \
+  do { pthread_mutex_unlock(mutexes + (n)); } while (0)
+#define LOCK_s(n)                                                              \
   do {                                                                         \
-  } while (__sync_lock_test_and_set(&af, 1))
-#define UNLOCK_s()                                                             \
-  do { __sync_lock_release(&af); } while (0)
-#define LOCK_none()
-#define UNLOCK_none()
+  } while (__sync_lock_test_and_set(spinlocks + (n), 1))
+#define UNLOCK_s(n)                                                            \
+  do { __sync_lock_release(spinlocks + (n)); } while (0)
+#define LOCK_none(n)
+#define UNLOCK_none(n)
 
 
 #define MAKE_WORKER(how)                                                       \
@@ -248,35 +248,39 @@ volatile int af = 0;
     uint64_t lock_acquire_time = 0;                                            \
                                                                                \
     for (int i = 0; i < it; ++i) {                                             \
+      int n = *insert_begin[i].key % opt_lists;                                \
       lock_acquire_time -= get_nano();                                         \
-      LOCK_##how();                                                            \
+      LOCK_##how(n);                                                           \
       lock_acquire_time += get_nano();                                         \
-      SortedList_t *list = lists + *insert_begin[i].key % opt_lists;           \
+      SortedList_t *list = lists + n;                                          \
       SortedList_insert(list, insert_begin + i);                               \
-      UNLOCK_##how();                                                          \
+      UNLOCK_##how(n);                                                         \
     }                                                                          \
                                                                                \
     lock_acquire_time -= get_nano();                                           \
-    LOCK_##how();                                                              \
+    for (int i = 0; i < li; ++i) {                                             \
+      LOCK_##how(i);                                                           \
+      (void) SortedList_length(lists + i);                                     \
+      UNLOCK_##how(i);                                                         \
+    }                                                                          \
     lock_acquire_time += get_nano();                                           \
-    for (int i = 0; i < li; ++i) { (void) SortedList_length(lists + i); };     \
-    UNLOCK_##how();                                                            \
                                                                                \
     for (int i = 0; i < it; ++i) {                                             \
+      int n = *insert_begin[i].key % opt_lists;                                \
       lock_acquire_time -= get_nano();                                         \
-      LOCK_##how();                                                            \
+      LOCK_##how(n);                                                           \
       lock_acquire_time += get_nano();                                         \
-      SortedList_t *list = lists + *insert_begin[i].key % opt_lists;           \
+      SortedList_t *list = lists + n;                                          \
       SortedListElement_t *el = SortedList_lookup(list, insert_begin[i].key);  \
-      UNLOCK_##how();                                                          \
+      UNLOCK_##how(n);                                                         \
       CONSISTENCY_CHECK(el == insert_begin + i,                                \
                         "Looking up inserted element got unexpected element"); \
                                                                                \
       lock_acquire_time -= get_nano();                                         \
-      LOCK_##how();                                                            \
+      LOCK_##how(n);                                                           \
       lock_acquire_time += get_nano();                                         \
       int dr = SortedList_delete(el);                                          \
-      UNLOCK_##how();                                                          \
+      UNLOCK_##how(n);                                                         \
       CONSISTENCY_CHECK(dr == 0,                                               \
                         "Deleting the inserted element reports corruption");   \
     }                                                                          \
@@ -316,11 +320,15 @@ main(int argc, char *argv[]) {
   assert(opt_threads > 0);
   assert(opt_iterations > 0);
 
-  /* Initialize an empty list. */
+  /* Initialize empty lists and locks. */
   lists = xcalloc(opt_lists, sizeof(SortedList_t));
+  mutexes = xcalloc(opt_lists, sizeof(pthread_mutex_t));
+  spinlocks = xcalloc(opt_lists, sizeof(int));
   for (int i = 0; i < opt_lists; ++i) {
     lists[i].next = &lists[i];
     lists[i].prev = &lists[i];
+    pthread_mutex_init(mutexes + i, NULL);
+    spinlocks[i] = 0;
   }
 
   /* Make elements. */
@@ -338,6 +346,7 @@ main(int argc, char *argv[]) {
   default: assert(false && "unreachable"); exit(10);
   }
 
+  /* Initialize per-thread objects */
   pthread_t th[opt_threads];
   struct WorkerArgs wa[opt_threads];
   for (int i = 0; i < opt_threads; ++i) {
@@ -375,13 +384,13 @@ main(int argc, char *argv[]) {
   }
   average_wait_for_lock /= operations;
   printf(
-    "list-%s%s%s%s-%s,%d,%d,1,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
+    "list-%s%s%s%s-%s,%d,%d,%d,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
     "\n",
     opt_yield & INSERT_YIELD ? "i" : "", /* Likely inefficient but don't care */
     opt_yield & DELETE_YIELD ? "d" : "", /* Likely inefficient but don't care */
     opt_yield & LOOKUP_YIELD ? "l" : "", /* Likely inefficient but don't care */
     opt_yield == 0 ? "none" : "",        /* Likely inefficient but don't care */
-    opt_sync, opt_threads, opt_iterations, operations, duration,
+    opt_sync, opt_threads, opt_iterations, opt_lists, operations, duration,
     average_duration, average_wait_for_lock);
 
   return 0;
