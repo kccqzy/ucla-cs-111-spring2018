@@ -14,7 +14,7 @@ tests: lab2b_1.csv lab2b_3.csv lab2b_4.csv lab2b_5.csv
 graphs: lab2b_1.png lab2b_2.png lab2b_3.png lab2b_4.png lab2b_5.png
 
 clean:
-	-rm -rf *.o *.s lab2_list *.dSYM *.tar.gz
+	-rm -rf *.o *.s lab2_list *.dSYM *.tar.gz lab2b_?.csv
 
 clean-full:
 	-rm -rf *.o *.s lab2_list *.csv *.dSYM *.tar.gz *.png
