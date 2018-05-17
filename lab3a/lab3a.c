@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +24,7 @@ div_ceil(size_t a, size_t b) {
 }
 
 static void
-analyze(const char* image, size_t size) {
+analyze(const uint8_t* image, size_t size) {
   /* The superblock is always at byte offset 1024. */
   assert(size >= 1024 + sizeof(struct ext2_super_block));
   const struct ext2_super_block* s =
@@ -51,13 +52,23 @@ analyze(const char* image, size_t size) {
   size_t last_group_block_count =
     (blocks_count - s->s_first_data_block) % s->s_blocks_per_group;
 
-  printf(
-    "GROUP,0,%zu,%d,%d,%d,%d,%d,%d\n",
-    last_group_block_count, /* If this were not the last group, we can use
-                               s_blocks_per_group */
-    s->s_inodes_per_group, bgdt->bg_free_blocks_count,
-    bgdt->bg_free_inodes_count, bgdt->bg_block_bitmap, bgdt->bg_inode_bitmap,
-    bgdt->bg_inode_table);
+  printf("GROUP,0,%zu,%d,%d,%d,%d,%d,%d\n",
+         last_group_block_count, /* If this were not the last group, we can use
+                                    s_blocks_per_group */
+         s->s_inodes_per_group, bgdt->bg_free_blocks_count,
+         bgdt->bg_free_inodes_count, bgdt->bg_block_bitmap,
+         bgdt->bg_inode_bitmap, bgdt->bg_inode_table);
+
+  /* Now find all free blocks. */
+  size_t block_bitmap_loc = bgdt->bg_block_bitmap;
+  const uint8_t* block_bitmap = image + block_size * block_bitmap_loc;
+  for (size_t blk = s->s_first_data_block, blk_end = blocks_count;
+       blk < blk_end; ++blk) {
+    /* Is this block free? */
+    size_t i = blk - s->s_first_data_block; /* i is the relative index inside
+                                               this group. */
+    if (!(block_bitmap[i / 8] & (1 << (i % 8)))) { printf("BFREE,%zu\n", blk); }
+  }
 }
 
 int
@@ -88,8 +99,8 @@ main(int argc, const char* argv[]) {
   }
 
   off_t sz = st.st_size;
-  const char* image =
-    (char*) mmap(NULL, sz, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
+  const uint8_t* image =
+    (uint8_t*) mmap(NULL, sz, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
   if (image == MAP_FAILED) {
     fprintf(stderr, "%s: could not mmap: %s\n", argv[0], strerror(errno));
     exit(1);
