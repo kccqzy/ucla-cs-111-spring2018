@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #pragma pack(1)
@@ -88,7 +89,43 @@ analyze(const uint8_t* image, size_t size) {
         // s->s_first_ino;
     size_t i = 0; i < s->s_inodes_per_group; ++i) {
     if (inode_table[i].i_mode && inode_table[i].i_links_count) {
-      printf("INODE,%zu\n", i + 1);
+      uint16_t file_type = inode_table[i].i_mode & 0xf000;
+      char mtime[20], ctime[20], atime[20];
+      strftime(mtime, 20, "%D %T", gmtime(&(time_t){inode_table[i].i_mtime}));
+      strftime(ctime, 20, "%D %T", gmtime(&(time_t){inode_table[i].i_ctime}));
+      strftime(atime, 20, "%D %T", gmtime(&(time_t){inode_table[i].i_atime}));
+      printf(
+        "INODE,%zu,%c,%03o,%d,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%"
+        "d,%d,%d,%d,%d,%d\n",
+        i + 1,
+        file_type == 0xa000
+          ? 's'
+          : file_type == 0x8000 ? 'f' : file_type == 0x4000 ? 'd' : '?',
+        inode_table[i].i_mode &
+          0xfff,              /* Low-order 12 bits are the actual mode */
+        inode_table[i].i_uid, /* Owner */
+        inode_table[i].i_gid, /* Group */
+        inode_table[i].i_links_count, /* Links */
+        ctime,                        /* Creation time */
+        mtime,                        /* Modification time */
+        atime,                        /* Access time */
+        inode_table[i].i_size,        /* File size */
+        inode_table[i].i_blocks,      /* Number of blocks reserved */
+        inode_table[i].i_block[0],    /* fvck */
+        inode_table[i].i_block[1],    /* fvck */
+        inode_table[i].i_block[2],    /* fvck */
+        inode_table[i].i_block[3],    /* fvck */
+        inode_table[i].i_block[4],    /* fvck */
+        inode_table[i].i_block[5],    /* fvck */
+        inode_table[i].i_block[6],    /* fvck */
+        inode_table[i].i_block[7],    /* fvck */
+        inode_table[i].i_block[8],    /* fvck */
+        inode_table[i].i_block[9],    /* fvck */
+        inode_table[i].i_block[10],   /* fvck */
+        inode_table[i].i_block[11],   /* fvck */
+        inode_table[i].i_block[12],   /* fvck */
+        inode_table[i].i_block[13],   /* fvck */
+        inode_table[i].i_block[14]);
     }
   }
 }
