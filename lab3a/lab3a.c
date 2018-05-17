@@ -75,7 +75,20 @@ analyze(const uint8_t* image, size_t size) {
   const uint8_t* inode_bitmap = image + block_size * inode_bitmap_loc;
   for (size_t i = 0; i < s->s_inodes_per_group; ++i) {
     if (!(inode_bitmap[i / 8] & (1 << (i % 8)))) {
-      printf("IFREE,%zu\n", i + 1 ); /* Not sure about this +1 */
+      printf("IFREE,%zu\n", i + 1); /* inodes are numbered starting from 1 */
+    }
+  }
+
+  /* Now scan all inodes. */
+  size_t inode_table_loc = bgdt->bg_inode_table;
+  const struct ext2_inode* inode_table =
+    (const struct ext2_inode*) (image + block_size * inode_table_loc);
+  DUMP_VAR_INT(inode_table_loc);
+  for ( // size_t i = s->s_rev_level == 0 ? EXT2_GOOD_OLD_FIRST_INO :
+        // s->s_first_ino;
+    size_t i = 0; i < s->s_inodes_per_group; ++i) {
+    if (inode_table[i].i_mode && inode_table[i].i_links_count) {
+      printf("INODE,%zu\n", i + 1);
     }
   }
 }
