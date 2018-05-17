@@ -69,6 +69,15 @@ analyze(const uint8_t* image, size_t size) {
                                                this group. */
     if (!(block_bitmap[i / 8] & (1 << (i % 8)))) { printf("BFREE,%zu\n", blk); }
   }
+
+  /* Now find all free inodes. */
+  size_t inode_bitmap_loc = bgdt->bg_inode_bitmap;
+  const uint8_t* inode_bitmap = image + block_size * inode_bitmap_loc;
+  for (size_t i = 0; i < s->s_inodes_per_group; ++i) {
+    if (!(inode_bitmap[i / 8] & (1 << (i % 8)))) {
+      printf("IFREE,%zu\n", i + 1 ); /* Not sure about this +1 */
+    }
+  }
 }
 
 int
