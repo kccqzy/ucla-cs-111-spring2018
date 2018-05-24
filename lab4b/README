@@ -1,0 +1,15 @@
+# CS 111 Project 4B
+
+NAME: Joe Qian
+EMAIL: qzy@g.ucla.edu
+ID: 404816794
+SLIPDAYS: 2
+
+This is an implementation of Project 4B. The files included in this submission,
+as reported by `tar tf *.tar.gz` are the following:
+
+    README ............. This readme file
+    Makefile ........... A Makefile to build the project
+    lab4b.c ............ The main C source code
+    button.h ........... A header of inlined functions to deal with the button
+    temp.h ............. A header of inlined functions to deal with the sensor
