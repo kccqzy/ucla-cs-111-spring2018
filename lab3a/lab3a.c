@@ -143,9 +143,12 @@ analyze(const uint8_t* image, size_t size) {
           // block?
           if (!dirent->rec_len) { break; }
           if (dirent->inode) {
+            char name[256];
+            memcpy(name, dirent->name, dirent->name_len);
+            name[dirent->name_len] = 0;
             printf("DIRENT,%zu,%zu,%d,%d,%d,'%s'\n", i + 1, dirent_offset,
                    dirent->inode, dirent->rec_len, dirent->name_len,
-                   dirent->name);
+                   name);
           }
           dirent_offset += dirent->rec_len;
           dirent = (const struct ext2_dir_entry*) ((const char*) dirent +
