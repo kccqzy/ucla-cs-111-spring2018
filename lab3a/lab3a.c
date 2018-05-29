@@ -24,6 +24,13 @@ div_ceil(size_t a, size_t b) {
   return ((a - 1) / b) + 1;
 }
 
+static inline void
+print_indirect_block_references(uint32_t indirect_block_loc,
+                                uint32_t doubly_indirect_block_loc,
+                                uint32_t triply_indirect_block_loc,
+                                const uint8_t* image, size_t block_size,
+                                size_t inode);
+
 static void
 analyze(const uint8_t* image, size_t size) {
   /* The superblock is always at byte offset 1024. */
@@ -135,7 +142,9 @@ analyze(const uint8_t* image, size_t size) {
           (const struct ext2_dir_entry*) (image + current_block * block_size);
         size_t dirent_offset = 0;
         while (dirent_offset < inode_table[i].i_size) {
-          // TODO does it work for directories spanning more than one data block?
+          // TODO does it work for directories spanning more than one data
+          // block?
+          if (!dirent->rec_len) { break; }
           if (dirent->inode) {
             printf("DIRENT,%zu,%zu,%d,%d,%d,'%s'\n", i + 1, dirent_offset,
                    dirent->inode, dirent->rec_len, dirent->name_len,
@@ -146,8 +155,88 @@ analyze(const uint8_t* image, size_t size) {
                                                    dirent->rec_len);
         }
       }
+
+      /* Now print indirect block references */
+      print_indirect_block_references(
+        inode_table[i].i_block[12], inode_table[i].i_block[13],
+        inode_table[i].i_block[14], image, block_size, i + 1);
     }
   }
+}
+
+static inline void
+print_indirect_block(uint32_t indirect_block_loc, const uint8_t* image,
+                     size_t block_size, size_t inode,
+                     size_t* logical_block_offset) {
+  const size_t entries_in_block = block_size / sizeof(uint32_t);
+
+  const uint32_t* indirect_block =
+    (const uint32_t*) (image + indirect_block_loc * block_size);
+  for (size_t j = 0; j < entries_in_block; ++j) {
+    if (indirect_block[j]) {
+      printf("INDIRECT,%zu,1,%zu,%d,%d\n", inode, *logical_block_offset,
+             indirect_block_loc, indirect_block[j]);
+    }
+    ++*logical_block_offset;
+  }
+}
+
+static inline void
+print_doubly_indirect_block(uint32_t doubly_indirect_block_loc,
+                            const uint8_t* image, size_t block_size,
+                            size_t inode, size_t* logical_block_offset) {
+  const size_t entries_in_block = block_size / sizeof(uint32_t);
+
+  const uint32_t* doubly_indirect_block =
+    (const uint32_t*) (image + doubly_indirect_block_loc * block_size);
+  for (size_t j = 0; j < entries_in_block; ++j) {
+    if (doubly_indirect_block[j]) {
+      printf("INDIRECT,%zu,2,%zu,%d,%d\n", inode, *logical_block_offset,
+             doubly_indirect_block_loc, doubly_indirect_block[j]);
+      print_indirect_block(doubly_indirect_block[j], image, block_size, inode,
+                           logical_block_offset);
+    } else {
+      *logical_block_offset += entries_in_block;
+    }
+  }
+}
+
+static inline void
+print_triply_indirect_block(uint32_t triply_indirect_block_loc,
+                            const uint8_t* image, size_t block_size,
+                            size_t inode, size_t* logical_block_offset) {
+  const size_t entries_in_block = block_size / sizeof(uint32_t);
+
+  const uint32_t* triply_indirect_block =
+    (const uint32_t*) (image + triply_indirect_block_loc * block_size);
+  for (size_t j = 0; j < block_size / sizeof(uint32_t); ++j) {
+    if (triply_indirect_block[j]) {
+      printf("INDIRECT,%zu,3,%zu,%d,%d\n", inode, *logical_block_offset,
+             triply_indirect_block_loc, triply_indirect_block[j]);
+      print_doubly_indirect_block(triply_indirect_block[j], image, block_size,
+                                  inode, logical_block_offset);
+    } else {
+      *logical_block_offset += entries_in_block * entries_in_block;
+    }
+  }
+}
+
+static inline void
+print_indirect_block_references(uint32_t indirect_block_loc,
+                                uint32_t doubly_indirect_block_loc,
+                                uint32_t triply_indirect_block_loc,
+                                const uint8_t* image, size_t block_size,
+                                size_t inode) {
+  size_t logical_block_offset = 12;
+  if (indirect_block_loc)
+    print_indirect_block(indirect_block_loc, image, block_size, inode,
+                         &logical_block_offset);
+  if (doubly_indirect_block_loc)
+    print_doubly_indirect_block(doubly_indirect_block_loc, image, block_size,
+                                inode, &logical_block_offset);
+  if (triply_indirect_block_loc)
+    print_triply_indirect_block(triply_indirect_block_loc, image, block_size,
+                                inode, &logical_block_offset);
 }
 
 int
