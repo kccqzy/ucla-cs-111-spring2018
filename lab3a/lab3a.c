@@ -102,38 +102,39 @@ analyze(const uint8_t* image, size_t size) {
       strftime(mtime, 20, "%D %T", gmtime(&(time_t){inode_table[i].i_mtime}));
       strftime(ctime, 20, "%D %T", gmtime(&(time_t){inode_table[i].i_ctime}));
       strftime(atime, 20, "%D %T", gmtime(&(time_t){inode_table[i].i_atime}));
-      printf(
-        "INODE,%zu,%c,%03o,%d,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%"
-        "d,%d,%d,%d,%d,%d\n",
-        i + 1,
-        file_type == 0xa000
-          ? 's'
-          : file_type == 0x8000 ? 'f' : file_type == 0x4000 ? 'd' : '?',
-        inode_table[i].i_mode &
-          0xfff,              /* Low-order 12 bits are the actual mode */
-        inode_table[i].i_uid, /* Owner */
-        inode_table[i].i_gid, /* Group */
-        inode_table[i].i_links_count, /* Links */
-        ctime,                        /* Creation time */
-        mtime,                        /* Modification time */
-        atime,                        /* Access time */
-        inode_table[i].i_size,        /* File size */
-        inode_table[i].i_blocks,      /* Number of blocks reserved */
-        inode_table[i].i_block[0],    /* fvck */
-        inode_table[i].i_block[1],    /* fvck */
-        inode_table[i].i_block[2],    /* fvck */
-        inode_table[i].i_block[3],    /* fvck */
-        inode_table[i].i_block[4],    /* fvck */
-        inode_table[i].i_block[5],    /* fvck */
-        inode_table[i].i_block[6],    /* fvck */
-        inode_table[i].i_block[7],    /* fvck */
-        inode_table[i].i_block[8],    /* fvck */
-        inode_table[i].i_block[9],    /* fvck */
-        inode_table[i].i_block[10],   /* fvck */
-        inode_table[i].i_block[11],   /* fvck */
-        inode_table[i].i_block[12],   /* fvck */
-        inode_table[i].i_block[13],   /* fvck */
-        inode_table[i].i_block[14]);
+      printf("INODE,%zu,%c,%03o,%d,%d,%d,%s,%s,%s,%d,%d", i + 1,
+             file_type == 0xa000
+               ? 's'
+               : file_type == 0x8000 ? 'f' : file_type == 0x4000 ? 'd' : '?',
+             inode_table[i].i_mode &
+               0xfff,              /* Low-order 12 bits are the actual mode */
+             inode_table[i].i_uid, /* Owner */
+             inode_table[i].i_gid, /* Group */
+             inode_table[i].i_links_count, /* Links */
+             ctime,                        /* Creation time */
+             mtime,                        /* Modification time */
+             atime,                        /* Access time */
+             inode_table[i].i_size,        /* File size */
+             inode_table[i].i_blocks       /* Number of blocks reserved */
+      );
+
+      /* Print the blocks if ordinary or directory. */
+      if (file_type == 0x4000 || file_type == 0x8000) {
+        printf(",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+               inode_table[i].i_block[0], inode_table[i].i_block[1],
+               inode_table[i].i_block[2], inode_table[i].i_block[3],
+               inode_table[i].i_block[4], inode_table[i].i_block[5],
+               inode_table[i].i_block[6], inode_table[i].i_block[7],
+               inode_table[i].i_block[8], inode_table[i].i_block[9],
+               inode_table[i].i_block[10], inode_table[i].i_block[11],
+               inode_table[i].i_block[12], inode_table[i].i_block[13],
+               inode_table[i].i_block[14]);
+      } else if (file_type == 0xa000) {
+        /* Print only the first block apparently for symlinks. */
+        printf(",%d\n", inode_table[i].i_block[0]);
+      } else {
+        putchar('\n');
+      }
 
       /* Now print directory entries. */
       if (file_type == 0x4000) {
