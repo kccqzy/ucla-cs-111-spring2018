@@ -15,9 +15,6 @@
 
 #include "ext2_fs.h"
 
-#define DUMP_VAR_INT(x)                                                        \
-  do { fprintf(stderr, #x " = %d\n", (int) (x)); } while (0)
-
 static inline size_t
 div_ceil(size_t a, size_t b) {
   if (!a) { return 0; }
@@ -44,8 +41,6 @@ analyze(const uint8_t* image, size_t size) {
          s->s_inodes_per_group, s->s_first_ino);
 
   size_t blocks_count = s->s_blocks_count;
-  DUMP_VAR_INT(blocks_count);
-  DUMP_VAR_INT(s->s_first_data_block);
   size_t groups_count =
     div_ceil(blocks_count - s->s_first_data_block, s->s_blocks_per_group);
   assert(groups_count == 1); /* Currently only one group is supported. */
@@ -92,7 +87,6 @@ analyze(const uint8_t* image, size_t size) {
   size_t inode_table_loc = bgdt->bg_inode_table;
   const struct ext2_inode* inode_table =
     (const struct ext2_inode*) (image + block_size * inode_table_loc);
-  DUMP_VAR_INT(inode_table_loc);
   for ( // size_t i = s->s_rev_level == 0 ? EXT2_GOOD_OLD_FIRST_INO :
         // s->s_first_ino;
     size_t i = 0; i < s->s_inodes_per_group; ++i) {
@@ -246,4 +240,6 @@ main(int argc, const char* argv[]) {
   }
 
   analyze(image, sz);
+
+  return 0;
 }
