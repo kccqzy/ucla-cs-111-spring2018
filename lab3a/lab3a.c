@@ -164,59 +164,29 @@ analyze(const uint8_t* image, size_t size) {
   }
 }
 
-static inline void
-print_indirect_block(uint32_t indirect_block_loc, const uint8_t* image,
-                     size_t block_size, size_t inode,
-                     size_t* logical_block_offset) {
+static void
+print_indirect_block_recursive(int level, uint32_t indirect_block_loc,
+                               const uint8_t* image, size_t block_size,
+                               size_t inode, size_t* logical_block_offset) {
   const size_t entries_in_block = block_size / sizeof(uint32_t);
+  size_t logical_block_offset_increment = 1;
+  for (int r = 1; r < level; ++r)
+    logical_block_offset_increment *= entries_in_block;
 
   const uint32_t* indirect_block =
     (const uint32_t*) (image + indirect_block_loc * block_size);
   for (size_t j = 0; j < entries_in_block; ++j) {
     if (indirect_block[j]) {
-      printf("INDIRECT,%zu,1,%zu,%d,%d\n", inode, *logical_block_offset,
+      printf("INDIRECT,%zu,%d,%zu,%d,%d\n", inode, level, *logical_block_offset,
              indirect_block_loc, indirect_block[j]);
-    }
-    ++*logical_block_offset;
-  }
-}
-
-static inline void
-print_doubly_indirect_block(uint32_t doubly_indirect_block_loc,
-                            const uint8_t* image, size_t block_size,
-                            size_t inode, size_t* logical_block_offset) {
-  const size_t entries_in_block = block_size / sizeof(uint32_t);
-
-  const uint32_t* doubly_indirect_block =
-    (const uint32_t*) (image + doubly_indirect_block_loc * block_size);
-  for (size_t j = 0; j < entries_in_block; ++j) {
-    if (doubly_indirect_block[j]) {
-      printf("INDIRECT,%zu,2,%zu,%d,%d\n", inode, *logical_block_offset,
-             doubly_indirect_block_loc, doubly_indirect_block[j]);
-      print_indirect_block(doubly_indirect_block[j], image, block_size, inode,
-                           logical_block_offset);
+      if (level > 1) {
+        print_indirect_block_recursive(level - 1, indirect_block[j], image,
+                                       block_size, inode, logical_block_offset);
+      } else {
+        ++*logical_block_offset;
+      }
     } else {
-      *logical_block_offset += entries_in_block;
-    }
-  }
-}
-
-static inline void
-print_triply_indirect_block(uint32_t triply_indirect_block_loc,
-                            const uint8_t* image, size_t block_size,
-                            size_t inode, size_t* logical_block_offset) {
-  const size_t entries_in_block = block_size / sizeof(uint32_t);
-
-  const uint32_t* triply_indirect_block =
-    (const uint32_t*) (image + triply_indirect_block_loc * block_size);
-  for (size_t j = 0; j < block_size / sizeof(uint32_t); ++j) {
-    if (triply_indirect_block[j]) {
-      printf("INDIRECT,%zu,3,%zu,%d,%d\n", inode, *logical_block_offset,
-             triply_indirect_block_loc, triply_indirect_block[j]);
-      print_doubly_indirect_block(triply_indirect_block[j], image, block_size,
-                                  inode, logical_block_offset);
-    } else {
-      *logical_block_offset += entries_in_block * entries_in_block;
+      *logical_block_offset += logical_block_offset_increment;
     }
   }
 }
@@ -229,14 +199,14 @@ print_indirect_block_references(uint32_t indirect_block_loc,
                                 size_t inode) {
   size_t logical_block_offset = 12;
   if (indirect_block_loc)
-    print_indirect_block(indirect_block_loc, image, block_size, inode,
-                         &logical_block_offset);
+    print_indirect_block_recursive(1, indirect_block_loc, image, block_size,
+                                   inode, &logical_block_offset);
   if (doubly_indirect_block_loc)
-    print_doubly_indirect_block(doubly_indirect_block_loc, image, block_size,
-                                inode, &logical_block_offset);
+    print_indirect_block_recursive(2, doubly_indirect_block_loc, image,
+                                   block_size, inode, &logical_block_offset);
   if (triply_indirect_block_loc)
-    print_triply_indirect_block(triply_indirect_block_loc, image, block_size,
-                                inode, &logical_block_offset);
+    print_indirect_block_recursive(3, triply_indirect_block_loc, image,
+                                   block_size, inode, &logical_block_offset);
 }
 
 int
