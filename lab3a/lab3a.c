@@ -38,6 +38,7 @@ analyze(const uint8_t* image, size_t size) {
 
   size_t blocks_count = s->s_blocks_count;
   DUMP_VAR_INT(blocks_count);
+  DUMP_VAR_INT(s->s_first_data_block);
   size_t groups_count =
     div_ceil(blocks_count - s->s_first_data_block, s->s_blocks_per_group);
   assert(groups_count == 1); /* Currently only one group is supported. */
@@ -52,10 +53,12 @@ analyze(const uint8_t* image, size_t size) {
 
   size_t last_group_block_count =
     (blocks_count - s->s_first_data_block) % s->s_blocks_per_group;
+  (void) last_group_block_count;
+  /* This last_group_block_count is the correct block count for group 0. Stupid
+     Mark Kampe disagreeing with ext2 developers on Piazza. */
 
   printf("GROUP,0,%zu,%d,%d,%d,%d,%d,%d\n",
-         last_group_block_count, /* If this were not the last group, we can use
-                                    s_blocks_per_group */
+         blocks_count,
          s->s_inodes_per_group, bgdt->bg_free_blocks_count,
          bgdt->bg_free_inodes_count, bgdt->bg_block_bitmap,
          bgdt->bg_inode_bitmap, bgdt->bg_inode_table);
