@@ -1,0 +1,32 @@
+# CS 111 Project 3A
+
+NAME: Joe Qian
+EMAIL: qzy@g.ucla.edu
+ID: 404816794
+
+This is an implementation of Project 3A. The files included in this submission,
+as reported by `tar tf *.tar.gz` are the following:
+
+    README ............. This readme file
+    Makefile ........... A Makefile to build the project
+    lab3a.c ............ The C source code for the project
+    ext2_fs.h .......... The provided header file
+
+Additionally notes follow.
+
+1. The given CSV is incorrect in several places. Care has been taken to follow
+the format of the CSV instead of being absolutely correct. For example, the
+number of blocks in the last group of a file system is computed by
+
+    size_t last_group_block_count =
+        (super->s_blocks_count - super->s_first_data_block) % super->s_blocks_per_group;
+
+resulting in the result of 63 for the trivial file system. This is correct and
+agrees with the `dumpe2fs` that comes with the `e2fsprogs` package. It also
+logically makes sense because after all block 0 is blank. However to make sure
+my program produces an output identical to the given sample, adjustments have
+been made.
+
+2. This project is boring and unenlightening. I recommend the TAs and the
+professor discuss to replace this project with something more interesting in
+the future.
