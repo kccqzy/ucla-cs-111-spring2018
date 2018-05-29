@@ -57,11 +57,9 @@ analyze(const uint8_t* image, size_t size) {
   /* This last_group_block_count is the correct block count for group 0. Stupid
      Mark Kampe disagreeing with ext2 developers on Piazza. */
 
-  printf("GROUP,0,%zu,%d,%d,%d,%d,%d,%d\n",
-         blocks_count,
-         s->s_inodes_per_group, bgdt->bg_free_blocks_count,
-         bgdt->bg_free_inodes_count, bgdt->bg_block_bitmap,
-         bgdt->bg_inode_bitmap, bgdt->bg_inode_table);
+  printf("GROUP,0,%zu,%d,%d,%d,%d,%d,%d\n", blocks_count, s->s_inodes_per_group,
+         bgdt->bg_free_blocks_count, bgdt->bg_free_inodes_count,
+         bgdt->bg_block_bitmap, bgdt->bg_inode_bitmap, bgdt->bg_inode_table);
 
   /* Now find all free blocks. */
   size_t block_bitmap_loc = bgdt->bg_block_bitmap;
@@ -129,6 +127,25 @@ analyze(const uint8_t* image, size_t size) {
         inode_table[i].i_block[12],   /* fvck */
         inode_table[i].i_block[13],   /* fvck */
         inode_table[i].i_block[14]);
+
+      /* Now print directory entries. */
+      if (file_type == 0x4000) {
+        uint32_t current_block = inode_table[i].i_block[0];
+        const struct ext2_dir_entry* dirent =
+          (const struct ext2_dir_entry*) (image + current_block * block_size);
+        size_t dirent_offset = 0;
+        while (dirent_offset < inode_table[i].i_size) {
+          // TODO does it work for directories spanning more than one data block?
+          if (dirent->inode) {
+            printf("DIRENT,%zu,%zu,%d,%d,%d,'%s'\n", i + 1, dirent_offset,
+                   dirent->inode, dirent->rec_len, dirent->name_len,
+                   dirent->name);
+          }
+          dirent_offset += dirent->rec_len;
+          dirent = (const struct ext2_dir_entry*) ((const char*) dirent +
+                                                   dirent->rec_len);
+        }
+      }
     }
   }
 }
