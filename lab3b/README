@@ -1,0 +1,13 @@
+# CS 111 Project 3B
+
+NAME: Joe Qian
+EMAIL: qzy@g.ucla.edu
+ID: 404816794
+SLIPDAYS: 1
+
+This is an implementation of Project 3A. The files included in this submission,
+as reported by `tar tf *.tar.gz` are the following:
+
+    README ............. This readme file
+    Makefile ........... A Makefile to build the project
+    lab3b.py ........... The Python source code for the project
